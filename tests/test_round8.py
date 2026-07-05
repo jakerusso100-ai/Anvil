@@ -219,6 +219,84 @@ def test_failed_build_retries_then_passes():
     check("agent-review: failed build retries with error fed back", body)
 
 
+def test_failing_selftest_is_never_passed():
+    """The capstone bug from the chess run: the model declared 'done' while its
+    self-test kept exiting 1, and the reviewer (which only reads code) passed it.
+    A build whose self-test failed must never be passed — it retries first."""
+
+    def retries_then_passes():
+        ws = tempfile.mkdtemp()
+        calls = {"n": 0}
+
+        def fake_run_agent(model, messages, workspace, approve=lambda n, a: True):
+            calls["n"] += 1
+            Path(workspace, "game.py").write_text("print('hi')\n")
+            yield {"type": "run_started", "run_id": "rid"}
+            yield {"type": "tool_call", "name": "write_file", "args": {"path": "game.py"}}
+            yield {"type": "tool_result", "name": "write_file", "output": "wrote"}
+            yield {"type": "tool_call", "name": "bash", "args": {"command": "python game.py --selftest"}}
+            if calls["n"] == 1:
+                yield {"type": "tool_result", "name": "bash",
+                       "output": "[exit 1]\nAssertionError: illegal move d1h5"}
+            else:
+                yield {"type": "tool_result", "name": "bash", "output": "[exit 0]\nAll tests passed"}
+            yield {"type": "final_text", "answer": "done, the chess game works"}  # claims done both rounds
+            yield {"type": "final", "cost": 0.001, "reviewed": False, "revised": False,
+                   "passed": None, "answer": "", "run_id": "rid"}
+
+        seen = {}
+
+        def fake_review(reviewer, req, produced):
+            seen["produced"] = produced
+            return ({"verdict": "pass", "summary": "ok", "issues": [],
+                     "revision_instruction": ""}, llm.Usage(1, 1, 0.001))
+
+        real, rr = agent.run_agent, llm.review_code
+        agent.run_agent, llm.review_code = fake_run_agent, fake_review
+        try:
+            evs = list(agent.run_agent_reviewed(
+                "m", [{"role": "user", "content": "build chess"}], ws,
+                review=True, reviewer="claude-haiku-4-5", auto_revise=True, max_rounds=2))
+        finally:
+            agent.run_agent, llm.review_code = real, rr
+        expect(calls["n"] == 2, "a red self-test triggers a retry even when the model says 'done'")
+        expect("self-test passed (exit 0)" in seen.get("produced", ""),
+               "the reviewer is told the retry's self-test passed")
+        expect(evs[-1]["passed"] is True, "retry whose self-test passes + review passes -> passed")
+    check("agent-review: failing self-test retries, not passed", retries_then_passes)
+
+    def no_rounds_left_fails():
+        ws = tempfile.mkdtemp()
+
+        def fake_run_agent(model, messages, workspace, approve=lambda n, a: True):
+            Path(workspace, "game.py").write_text("print('hi')\n")
+            yield {"type": "run_started", "run_id": "rid"}
+            yield {"type": "tool_call", "name": "bash", "args": {"command": "python game.py --selftest"}}
+            yield {"type": "tool_result", "name": "bash", "output": "[exit 1]\nAssertionError"}
+            yield {"type": "final_text", "answer": "all done!"}
+            yield {"type": "final", "cost": 0.001, "reviewed": False, "revised": False,
+                   "passed": None, "answer": "", "run_id": "rid"}
+
+        reviewed = {"n": 0}
+
+        def fake_review(reviewer, req, produced):
+            reviewed["n"] += 1
+            return ({"verdict": "pass", "summary": "x", "issues": [],
+                     "revision_instruction": ""}, llm.Usage(1, 1, 0.001))
+
+        real, rr = agent.run_agent, llm.review_code
+        agent.run_agent, llm.review_code = fake_run_agent, fake_review
+        try:
+            evs = list(agent.run_agent_reviewed(
+                "m", [{"role": "user", "content": "x"}], ws,
+                review=True, reviewer="claude-haiku-4-5", auto_revise=True, max_rounds=1))
+        finally:
+            agent.run_agent, llm.review_code = real, rr
+        expect(evs[-1]["passed"] is False, "failing self-test + no rounds left -> not passed")
+        expect(reviewed["n"] == 0, "a build with a failing self-test is never sent to the reviewer")
+    check("agent-review: failing self-test with no rounds left is not passed/reviewed", no_rounds_left_fails)
+
+
 if __name__ == "__main__":
     print("== review off =="); test_review_off_is_plain_build()
     print("== review pass =="); test_review_pass_no_refix()
@@ -226,6 +304,7 @@ if __name__ == "__main__":
     print("== local reviewer skip =="); test_local_reviewer_skips()
     print("== failed build not passed =="); test_failed_build_never_passes()
     print("== failed build retries =="); test_failed_build_retries_then_passes()
+    print("== failing selftest not passed =="); test_failing_selftest_is_never_passed()
     import test_anvil
     print(f"\n{test_anvil.PASS} passed, {len(FAIL)} failed")
     for name, err in FAIL:

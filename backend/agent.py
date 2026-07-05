@@ -33,6 +33,9 @@ AGENT_SYSTEM = (
     "with code 0), and run THAT. Your shell already forces GUI toolkits headless. "
     "Do the work yourself, writing files step by step — do NOT hand the entire task to "
     "a single subagent; reserve subagents for narrow, well-scoped sub-parts. "
+    "To run Python use `python`; only fall back to `python3` if `python` is missing "
+    "(on Windows `python3` is often a non-functional Store stub). Install deps with "
+    "`python -m pip` so they land in the same interpreter you run. "
     "When the task is complete, give a brief summary of what you did."
 )
 
@@ -483,16 +486,28 @@ def _file_manifest(workspace: str, paths: set[str]) -> str:
     return ", ".join(items) if items else "(none)"
 
 
-def _review_input(workspace: str, written: set[str], files_text: str) -> str:
-    """Wrap the built files with a completeness header so the reviewer judges the whole
-    deliverable — not a lone stub — against the request."""
+def _exit_code(out: str) -> int | None:
+    """Parse the leading '[exit N]' the bash tool prepends to its output."""
+    if out.startswith("[exit "):
+        try:
+            return int(out[6:out.index("]")])
+        except ValueError:
+            return None
+    return None
+
+
+def _review_input(workspace: str, written: set[str], files_text: str, test_note: str) -> str:
+    """Wrap the built files with a completeness header + the build's own self-test
+    result, so the reviewer judges the whole deliverable — not a lone stub, and not
+    code that looks fine but does not actually run — against the request."""
     return (
         "[AUTONOMOUS BUILD — completeness review]\n"
         "The user expects a COMPLETE, RUNNABLE program that fully satisfies the request. "
-        f"Files the build actually wrote: {_file_manifest(workspace, written)}. If the "
-        "required functionality is missing, only stubbed, or the program would not run "
-        "end to end, the verdict MUST be 'revise' — never pass a skeleton or a lone "
-        "requirements/config file as complete.\n\n"
+        f"Files the build actually wrote: {_file_manifest(workspace, written)}.\n"
+        f"Self-test: {test_note}\n"
+        "If required functionality is missing, only stubbed, the program would not run "
+        "end to end, or its self-test did not pass, the verdict MUST be 'revise' — never "
+        "pass a skeleton, a lone requirements/config file, or code with a failing test.\n\n"
         f"----- ALL FILES PRODUCED -----\n{files_text}"
     )
 
@@ -521,6 +536,8 @@ def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
     for round_i in range(1, max_rounds + 1):
         # --- build (round 1) or fix (later rounds): run the agent to completion ---
         round_answer = ""
+        last_call = None
+        last_bash = None  # (exit_code, output) of the build's most recent shell command
         for ev in run_agent(model, conv, workspace, approve):
             et = ev.get("type")
             if et == "run_started":
@@ -533,31 +550,40 @@ def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
                 continue  # swallow inner finals; the outer final is emitted once, at the end
             if et == "final_text":
                 round_answer = ev.get("answer") or round_answer
-            if et == "tool_call" and ev.get("name") in ("write_file", "edit_file"):
-                p = (ev.get("args") or {}).get("path")
-                if p:
-                    written.add(p)
+            if et == "tool_call":
+                last_call = ev.get("name")
+                if last_call in ("write_file", "edit_file"):
+                    p = (ev.get("args") or {}).get("path")
+                    if p:
+                        written.add(p)
+            if et == "tool_result" and last_call == "bash":
+                out = ev.get("output") or ""
+                last_bash = (_exit_code(out), out)
             yield ev
         last_answer = round_answer or last_answer
 
         if not reviewing:
             break
 
-        # A build that crashed / timed out / hit the step limit is NOT done and can never
-        # be "passed". Retry with the error fed back if we have rounds left, else fail.
+        # A build is only 'done' if it finished cleanly AND its own self-test passed.
+        # Reasons it is NOT done: a crash/timeout/step-limit final, or the last shell
+        # command (typically the self-test) exited non-zero. Such a build can never be
+        # 'passed'; retry with the failure fed back if rounds remain, else fail.
         fail = _agent_failed(round_answer)
-        if fail:
+        test_failed = last_bash is not None and last_bash[0] not in (0, None)
+        if fail or test_failed:
             passed = False
+            reason = fail or ("its self-test / last command failed:\n" + last_bash[1][:800])
             if auto_revise and round_i < max_rounds:
                 revised = True
                 yield {"type": "review_error",
-                       "error": f"build did not finish ({fail}) — retrying"}
+                       "error": f"build did not verify — retrying ({reason[:80]})"}
                 conv = conv + [
                     {"role": "assistant", "content": round_answer or "(build did not finish)"},
                     {"role": "user", "content":
-                     "Your build did not finish — it stopped with:\n" + fail +
-                     "\n\nContinue from the files already on disk and COMPLETE the task in "
-                     "full, then run your headless self-test to confirm it works."},
+                     "Your build is NOT done — it did not pass its own check:\n" + reason +
+                     "\n\nFix the code, then re-run your headless self-test until it exits 0 "
+                     "before you stop. Do not claim success while the self-test fails."},
                 ]
                 continue
             break
@@ -567,10 +593,12 @@ def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
             passed = False   # build 'finished' but wrote nothing usable
             break
 
+        test_note = ("the build ran no self-test — judge runnability from the code"
+                     if last_bash is None else "the build's self-test passed (exit 0)")
         yield {"type": "stage", "stage": "reviewing", "model": reviewer, "round": round_i}
         try:
             rev, rusage = llm.review_code(reviewer, user_request,
-                                          _review_input(workspace, written, produced))
+                                          _review_input(workspace, written, produced, test_note))
         except Exception as e:
             yield {"type": "review_error", "error": f"review failed: {type(e).__name__}: {e}"}
             break
