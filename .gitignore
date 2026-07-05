@@ -16,3 +16,6 @@ examples/**/.anvil/
 # OS
 Thumbs.db
 .DS_Store
+
+# build artifacts (regenerable — don't version)
+dist/
