@@ -20,7 +20,7 @@ import requests
 import llm
 import tools
 
-MAX_STEPS = 25
+MAX_STEPS = 40  # room for hard builds (3D games) to converge on a clean self-test
 
 AGENT_SYSTEM = (
     "You are Anvil, an agentic coding assistant working in the user's workspace. "

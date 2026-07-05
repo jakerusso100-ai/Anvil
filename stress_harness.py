@@ -31,6 +31,14 @@ STRESS_TASKS = {
         "ground out of grass blocks and let me build stuff on top. make it run and "
         "actually work, completely finished, and test it yourself first."
     ),
+    "3d_space_flight": (
+        "make me a 3d space flying game in python. i want to be in a cockpit flying "
+        "through space in first person, and there should be asteroids or obstacles coming "
+        "at me that get bigger as they get closer so it looks 3d, and i steer left and "
+        "right and up and down with the arrow keys to dodge them. keep score for how long "
+        "i survive or how many i dodge. make it feel fast and 3d and actually run. test it "
+        "yourself and make sure it works 100% before saying it's done."
+    ),
     "todo_app": (
         "build me a little to-do list app with a window where i can type a task, hit add, "
         "and see it in a list. i want to be able to check things off and delete them, and "

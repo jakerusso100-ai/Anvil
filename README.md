@@ -79,12 +79,12 @@ These two programs were built by Anvil agents **end-to-end from a non-coder's pl
 prompt, with zero human intervention** — auto-routed to a local model, self-tested headless,
 verified working. ([`examples/`](examples/))
 
-| "make me a space game like asteroids but better" | "make me a 3D maze game" |
-|:---:|:---:|
-| ![space game](docs/img/example-space-game.png) | ![3D maze](docs/img/example-maze-3d.png) |
-| pygame · asteroids that split, UFOs, power-ups, lives | pygame raycasting engine · first-person · minimap |
+| "space game like asteroids but better" | "a 3D maze game" | "a 3D space flying game" |
+|:---:|:---:|:---:|
+| ![space game](docs/img/example-space-game.png) | ![3D maze](docs/img/example-maze-3d.png) | ![3D space flight](docs/img/example-space-flight.png) |
+| asteroids that split, UFOs, power-ups | raycasting engine · first-person · minimap | perspective projection · depth-scaled obstacles |
 
-*(A Minecraft-style Panda3D voxel builder is in `examples/` too.)*
+*(A Minecraft-style Panda3D voxel builder is in [`examples/`](examples/) too.)*
 
 ## Model roster
 
