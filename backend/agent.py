@@ -359,3 +359,102 @@ def run_agent(model: str, messages: list[dict], workspace: str,
         yield {"type": "final_text", "answer": f"(agent stopped on error: {type(e).__name__}: {e})"}
     yield {"type": "final", "cost": total_cost, "reviewed": False, "revised": False,
            "passed": None, "answer": "", "run_id": run_id}
+
+
+def _gather_built_files(workspace: str, paths: set[str], cap: int = 24000) -> str:
+    """Concatenate the files the agent wrote/edited so the reviewer can inspect them."""
+    ws = Path(workspace)
+    chunks, total = [], 0
+    for rel in sorted(paths):
+        p = Path(rel) if Path(rel).is_absolute() else ws / rel
+        try:
+            if not p.is_file():
+                continue
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        header = f"# ===== {rel} =====\n"
+        if total + len(header) >= cap:
+            break
+        body = text[: cap - total - len(header)]
+        chunks.append(header + body)
+        total += len(header) + len(body)
+    return "\n\n".join(chunks)
+
+
+def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
+                       approve: Callable[[str, dict], bool] = lambda n, a: True,
+                       *, review: bool = True, reviewer: str = "claude-haiku-4-5",
+                       auto_revise: bool = True, max_rounds: int = 2) -> Iterator[dict]:
+    """Local agent build + a gated frontier review of the finished build.
+
+    The local model builds with tools; when it's done a paid reviewer inspects the
+    files it wrote and either passes it or returns concrete fixes, which are fed back
+    into the agent for another build round. Fully automated — no human intervention.
+    Degrades to a plain agent run when review is off or no API reviewer is configured.
+    """
+    reviewing = bool(review and reviewer in llm.API_MODELS)
+    conv = list(messages)
+    user_request = next((m["content"] for m in messages if m.get("role") == "user"), "")
+    total_cost = 0.0
+    run_id = None
+    passed = None
+    revised = False
+    last_answer = ""
+    written: set[str] = set()
+
+    for round_i in range(1, max_rounds + 1):
+        # --- build (round 1) or fix (later rounds): run the agent to completion ---
+        for ev in run_agent(model, conv, workspace, approve):
+            et = ev.get("type")
+            if et == "run_started":
+                if run_id is None:
+                    run_id = ev["run_id"]
+                    yield ev
+                continue  # swallow later run_starts; one run_id spans the rounds
+            if et == "final":
+                total_cost = round(total_cost + (ev.get("cost") or 0), 5)
+                continue  # swallow inner finals; the outer final is emitted once, at the end
+            if et == "final_text":
+                last_answer = ev.get("answer") or last_answer
+            if et == "tool_call" and ev.get("name") in ("write_file", "edit_file"):
+                p = (ev.get("args") or {}).get("path")
+                if p:
+                    written.add(p)
+            yield ev
+
+        if not reviewing:
+            break
+        produced = _gather_built_files(workspace, written)
+        if not produced.strip():
+            break  # nothing on disk to review
+
+        yield {"type": "stage", "stage": "reviewing", "model": reviewer, "round": round_i}
+        try:
+            rev, rusage = llm.review_code(reviewer, user_request, produced)
+        except Exception as e:
+            yield {"type": "review_error", "error": f"review failed: {type(e).__name__}: {e}"}
+            break
+        total_cost = round(total_cost + rusage.cost_usd, 5)
+        passed = rev["verdict"] == "pass"
+        yield {"type": "review", "round": round_i, "verdict": rev["verdict"],
+               "summary": rev["summary"], "issues": rev["issues"],
+               "reviewer": reviewer, "cost": round(rusage.cost_usd, 5)}
+
+        if passed or not auto_revise or round_i == max_rounds:
+            break
+        # feed the reviewer's fixes back in for another build round
+        revised = True
+        issues_txt = "\n".join(f"- [{i['severity']}] {i['problem']} -> {i['fix']}"
+                               for i in rev["issues"])
+        conv = conv + [
+            {"role": "assistant", "content": last_answer or "(build complete)"},
+            {"role": "user", "content":
+             "A senior reviewer checked your build and it needs fixes before it is done. "
+             "Fix ALL of the issues below by editing the files, then re-run your headless "
+             "self-test to confirm it still passes.\n\n"
+             f"{rev['revision_instruction']}\n\nIssues:\n{issues_txt}"},
+        ]
+
+    yield {"type": "final", "cost": total_cost, "reviewed": reviewing,
+           "revised": revised, "passed": passed, "answer": "", "run_id": run_id}

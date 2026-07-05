@@ -2,8 +2,10 @@
 acting as a non-coder user. Logs every step, auto-approves tools, records what
 worked and what broke. Used to find bugs/rough-edges by real usage.
 
-Usage: py -3.14 stress_harness.py <task_id> <model|auto>
+Usage: py -3.14 stress_harness.py <task_id> <model|auto> [reviewer|none]
 Tasks are defined in STRESS_TASKS below (naive-user phrasing, no code terms).
+Pass a reviewer model (e.g. claude-haiku-4-5) as the 3rd arg to run the build
+through the paid-review + auto-fix loop, exactly like Anvil does with the toggle on.
 """
 from __future__ import annotations
 
@@ -39,6 +41,29 @@ STRESS_TASKS = {
         "i survive or how many i dodge. make it feel fast and 3d and actually run. test it "
         "yourself and make sure it works 100% before saying it's done."
     ),
+    "roguelike": (
+        "make me a dungeon crawler game in python where i explore rooms full of "
+        "monsters, pick up items and weapons, and fight my way deeper level by level. "
+        "i want an inventory i can open, health that goes down when a monster hits me, "
+        "and different monsters that behave differently. it should save my game so i can "
+        "quit and come back to the same spot later. make it actually run and be playable "
+        "the whole way through, fully finished, and test it yourself before saying it's done."
+    ),
+    "chess_ai": (
+        "make me a chess game in python that i can play against the computer. i want to "
+        "see the board, move my pieces, and the computer should play real legal moves "
+        "back and actually try to beat me, not move randomly. all the chess rules need to "
+        "work - castling, en passant, checkmate, the works. make it actually run and be "
+        "playable, and test it yourself to make sure the moves are legal before telling me "
+        "it's done."
+    ),
+    "fabric_mod": (
+        "i want a real minecraft mod that adds a new item to the game. make it a proper "
+        "mod i could actually load into minecraft with fabric - set up all the files and "
+        "folders it needs, write the java code, the mod metadata, everything from scratch. "
+        "i'm not a coder so do the whole project setup yourself and make sure it builds "
+        "with no errors. check it yourself before saying it's finished."
+    ),
     "todo_app": (
         "build me a little to-do list app with a window where i can type a task, hit add, "
         "and see it in a list. i want to be able to check things off and delete them, and "
@@ -51,6 +76,7 @@ STRESS_TASKS = {
 def main():
     task_id = sys.argv[1] if len(sys.argv) > 1 else "3d_game"
     model_arg = sys.argv[2] if len(sys.argv) > 2 else "auto"
+    reviewer = sys.argv[3] if len(sys.argv) > 3 else "none"
     prompt = STRESS_TASKS[task_id]
     ws = Path(__file__).parent / "examples" / f"stress_{task_id}"
     ws.mkdir(parents=True, exist_ok=True)
@@ -62,13 +88,21 @@ def main():
     else:
         model = model_arg
 
-    print(f"=== STRESS: {task_id} · model={model} ===\n")
+    review_note = f" · reviewer={reviewer}" if reviewer != "none" else " · local-only"
+    print(f"=== STRESS: {task_id} · model={model}{review_note} ===\n")
     t0 = time.perf_counter()
     steps = tool_calls = errors = 0
     files = set()
     last_answer = ""
-    for ev in agent.run_agent(model, [{"role": "user", "content": prompt}], str(ws),
-                              approve=lambda n, a: True):
+    if reviewer != "none":
+        stream = agent.run_agent_reviewed(
+            model, [{"role": "user", "content": prompt}], str(ws),
+            approve=lambda n, a: True,
+            review=True, reviewer=reviewer, auto_revise=True, max_rounds=2)
+    else:
+        stream = agent.run_agent(model, [{"role": "user", "content": prompt}], str(ws),
+                                 approve=lambda n, a: True)
+    for ev in stream:
         t = ev["type"]
         if t == "stage" and ev.get("step"):
             steps = ev["step"]
@@ -84,6 +118,19 @@ def main():
             if "ERROR" in ev["output"] or "Traceback" in ev["output"] or "timed out" in ev["output"]:
                 errors += 1
             print(f"        -> {out}", flush=True)
+        elif t == "stage" and ev.get("stage") == "reviewing":
+            print(f"[REVIEW] {ev['model']} inspecting the build (round {ev['round']})...", flush=True)
+        elif t == "review":
+            print(f"[REVIEW] verdict={ev['verdict'].upper()} · {len(ev['issues'])} issues · "
+                  f"${ev['cost']} · {ev['summary'][:90]}", flush=True)
+            for i in ev["issues"][:6]:
+                print(f"         - [{i['severity']}] {i['problem'][:90]}", flush=True)
+        elif t == "review_error":
+            print(f"[REVIEW] error: {ev['error']}", flush=True)
+        elif t == "final":
+            if ev.get("reviewed"):
+                verdict = "PASSED" if ev.get("passed") else ("still-had-issues" if ev.get("revised") else "n/a")
+                print(f"[REVIEW] final: reviewed=True revised={ev.get('revised')} -> {verdict}", flush=True)
         elif t == "final_text":
             last_answer = ev.get("answer") or ""
 

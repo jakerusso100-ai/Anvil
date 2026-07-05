@@ -15,6 +15,7 @@ Legend: ✅ done · 🔨 this build · 🗓 planned · ➖ not applicable locall
 | Checkpoints / rewind | ✅ | file snapshots to `.anvil/checkpoints/` before agent edits + restore button |
 | Slash commands | ✅ | /clear, /help, /model; more 🗓 |
 | Quality-review pipeline | ✅ | local coder + paid reviewer + auto-fix loop (Anvil original — neither app has this) |
+| Reviewed **builds** (Agent mode) | ✅ | after a local build finishes, a paid reviewer inspects the written files + self-test and loops concrete fixes back into the agent — toggleable, zero human intervention |
 | Cost/usage tracking | ✅ | per-session cost meter |
 | Model routing (local+API) | ✅ | Ollama + LM Studio + Anthropic in one picker |
 | Subagents / agent teams | ✅ | `spawn_subagent` tool runs a nested agent loop for a focused subtask, returns a summary (keeps parent context clean); depth-limited to 2 |

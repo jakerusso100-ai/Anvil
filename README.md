@@ -60,6 +60,11 @@ Or run from source: `py -3.14 desktop/main.py`
 approvals**, red-green **diff cards** with Accept/Reject, and one-click **checkpoint
 revert**.
 
+**Reviewed builds** — when a local model finishes building (files written, self-test
+run), a **paid reviewer (Opus/Fable/Haiku) checks the result** and loops concrete fixes
+back into the agent automatically. Local does the work; the frontier model does the QA —
+zero human intervention, and fully toggleable.
+
 **Chat mode** — a local model writes the code, a paid model reviews it, and the local
 model auto-fixes using the reviewer's guidance. All toggleable; live cost meter.
 

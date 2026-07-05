@@ -449,6 +449,8 @@ class Worker(QThread):
 
     def _make_gen(self):
         if self.mode == "agent":
+            if "review" in self.kwargs:  # build + gated frontier review of the result
+                return agent.run_agent_reviewed(approve=self.approve, **self.kwargs)
             return agent.run_agent(approve=self.approve, **self.kwargs)
         return pipeline.run_turn(**self.kwargs)
 
@@ -520,6 +522,8 @@ class SettingsDialog(QDialog):
         self.reviewer = QComboBox(); self.reviewer.addItems(llm.API_MODELS)
         self.reviewer.setCurrentText(s["reviewer"]); form.addRow("Reviewer model", self.reviewer)
         self.review = QCheckBox(); self.review.setChecked(s["review"]); form.addRow("Review code (Chat mode)", self.review)
+        self.review_agent = QCheckBox(); self.review_agent.setChecked(s["review_agent"])
+        form.addRow("Review builds (Agent mode)", self.review_agent)
         self.autofix = QCheckBox(); self.autofix.setChecked(s["auto_fix"]); form.addRow("Auto-fix on issues", self.autofix)
         self.rounds = QSpinBox(); self.rounds.setRange(1, 5); self.rounds.setValue(s["rounds"])
         form.addRow("Max fix rounds", self.rounds)
@@ -542,6 +546,7 @@ class SettingsDialog(QDialog):
 
     def values(self) -> dict:
         return {"reviewer": self.reviewer.currentText(), "review": self.review.isChecked(),
+                "review_agent": self.review_agent.isChecked(),
                 "auto_fix": self.autofix.isChecked(), "rounds": self.rounds.value(),
                 "auto_approve": self.approve.isChecked(), "router": self.router.currentText(),
                 "allow_api": self.allow_api.isChecked(), "vault": self.vault.currentText().strip()}
@@ -560,7 +565,8 @@ class Main(QMainWindow):
         self.workspace = str(Path.home())
         import tools as _tools
         vaults = _tools.detect_vaults()
-        self.settings = {"reviewer": "claude-haiku-4-5", "review": True, "auto_fix": True,
+        self.settings = {"reviewer": "claude-haiku-4-5", "review": True,
+                         "review_agent": True, "auto_fix": True,
                          "rounds": 2, "auto_approve": False,
                          "router": copilot.DEFAULT_ROUTER, "allow_api": True,
                          "vault": vaults[0] if vaults else ""}
@@ -942,7 +948,8 @@ class Main(QMainWindow):
                 "/clear — reset conversation\n/model <name> — switch coder\n/health — system check\n"
                 "@path/file — inject a workspace file\n"
                 "Auto model: the copilot routes each request to the best model.\n"
-                "Agent mode: tools (files, bash, web). Chat mode: coder + reviewer + auto-fix.")
+                "Agent mode: tools (files, bash, web) + paid review of the build. "
+                "Chat mode: coder + reviewer + auto-fix.")
         else:
             self.status.setText(f"unknown command {cmd}")
         return True
@@ -989,6 +996,9 @@ class Main(QMainWindow):
         perm = self.perm.currentText()
         if self.mode == "Agent":
             kwargs = {"model": model, "messages": list(self.history), "workspace": self.workspace}
+            if s["review_agent"]:  # local model builds, then a paid reviewer checks it
+                kwargs.update(review=True, reviewer=s["reviewer"],
+                              auto_revise=s["auto_fix"], max_rounds=s["rounds"])
             self.worker = Worker("agent", kwargs, perm, s["router"], s["allow_api"],
                                  expanded, self.workspace)
         else:
