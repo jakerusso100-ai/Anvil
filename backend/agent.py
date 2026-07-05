@@ -496,6 +496,18 @@ def _exit_code(out: str) -> int | None:
     return None
 
 
+# Shell commands that constitute a build's verification (vs. exploratory debugging).
+# We judge the build on the last of THESE, so trailing debug commands can't mask a
+# red test (the exact hole the chess run exposed: failing unittest, then exit-0 pokes).
+_TEST_HINTS = ("unittest", "pytest", "selftest", "discover", "test_", "tests/",
+               "tests\\", "nose", "py.test")
+
+
+def _is_test_cmd(cmd: str) -> bool:
+    c = (cmd or "").lower()
+    return any(h in c for h in _TEST_HINTS)
+
+
 def _review_input(workspace: str, written: set[str], files_text: str, test_note: str) -> str:
     """Wrap the built files with a completeness header + the build's own self-test
     result, so the reviewer judges the whole deliverable — not a lone stub, and not
@@ -537,7 +549,8 @@ def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
         # --- build (round 1) or fix (later rounds): run the agent to completion ---
         round_answer = ""
         last_call = None
-        last_bash = None  # (exit_code, output) of the build's most recent shell command
+        cur_is_test = False
+        last_test = None  # (exit_code, output) of the build's most recent TEST/self-test run
         for ev in run_agent(model, conv, workspace, approve):
             et = ev.get("type")
             if et == "run_started":
@@ -556,9 +569,12 @@ def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
                     p = (ev.get("args") or {}).get("path")
                     if p:
                         written.add(p)
-            if et == "tool_result" and last_call == "bash":
-                out = ev.get("output") or ""
-                last_bash = (_exit_code(out), out)
+                elif last_call == "bash":
+                    cur_is_test = _is_test_cmd((ev.get("args") or {}).get("command", ""))
+            # Judge on the last TEST/self-test command, not the last shell command —
+            # otherwise trailing debug pokes (exit 0) mask a red test.
+            if et == "tool_result" and last_call == "bash" and cur_is_test:
+                last_test = (_exit_code(ev.get("output") or ""), ev.get("output") or "")
             yield ev
         last_answer = round_answer or last_answer
 
@@ -566,14 +582,14 @@ def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
             break
 
         # A build is only 'done' if it finished cleanly AND its own self-test passed.
-        # Reasons it is NOT done: a crash/timeout/step-limit final, or the last shell
-        # command (typically the self-test) exited non-zero. Such a build can never be
-        # 'passed'; retry with the failure fed back if rounds remain, else fail.
+        # Reasons it is NOT done: a crash/timeout/step-limit final, or its last self-test
+        # run exited non-zero. Such a build can never be 'passed'; retry with the failure
+        # fed back if rounds remain, else fail.
         fail = _agent_failed(round_answer)
-        test_failed = last_bash is not None and last_bash[0] not in (0, None)
+        test_failed = last_test is not None and last_test[0] not in (0, None)
         if fail or test_failed:
             passed = False
-            reason = fail or ("its self-test / last command failed:\n" + last_bash[1][:800])
+            reason = fail or ("its self-test failed:\n" + last_test[1][:800])
             if auto_revise and round_i < max_rounds:
                 revised = True
                 yield {"type": "review_error",
@@ -594,7 +610,7 @@ def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
             break
 
         test_note = ("the build ran no self-test — judge runnability from the code"
-                     if last_bash is None else "the build's self-test passed (exit 0)")
+                     if last_test is None else "the build's self-test passed (exit 0)")
         yield {"type": "stage", "stage": "reviewing", "model": reviewer, "round": round_i}
         try:
             rev, rusage = llm.review_code(reviewer, user_request,

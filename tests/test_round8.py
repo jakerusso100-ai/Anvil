@@ -296,6 +296,43 @@ def test_failing_selftest_is_never_passed():
         expect(reviewed["n"] == 0, "a build with a failing self-test is never sent to the reviewer")
     check("agent-review: failing self-test with no rounds left is not passed/reviewed", no_rounds_left_fails)
 
+    def trailing_debug_cannot_mask_red_test():
+        # the EXACT chess-attempt-4 hole: a failing unittest, then exit-0 debug pokes.
+        ws = tempfile.mkdtemp()
+
+        def fake_run_agent(model, messages, workspace, approve=lambda n, a: True):
+            Path(workspace, "main.py").write_text("print('hi')\n")
+            yield {"type": "run_started", "run_id": "rid"}
+            yield {"type": "tool_call", "name": "bash",
+                   "args": {"command": "python -m unittest discover tests"}}
+            yield {"type": "tool_result", "name": "bash", "output": "[exit 1]\nFAIL: test_en_passant"}
+            # ...then exploratory debug commands that happen to exit 0 (NOT tests)
+            yield {"type": "tool_call", "name": "bash",
+                   "args": {"command": "python -c \"import chess; print(chess.Board())\""}}
+            yield {"type": "tool_result", "name": "bash", "output": "[exit 0]\nr n b q k b n r"}
+            yield {"type": "final_text", "answer": "done, the chess game is complete"}
+            yield {"type": "final", "cost": 0.001, "reviewed": False, "revised": False,
+                   "passed": None, "answer": "", "run_id": "rid"}
+
+        reviewed = {"n": 0}
+
+        def fake_review(reviewer, req, produced):
+            reviewed["n"] += 1
+            return ({"verdict": "pass", "summary": "looks complete", "issues": [],
+                     "revision_instruction": ""}, llm.Usage(1, 1, 0.001))
+
+        real, rr = agent.run_agent, llm.review_code
+        agent.run_agent, llm.review_code = fake_run_agent, fake_review
+        try:
+            evs = list(agent.run_agent_reviewed(
+                "m", [{"role": "user", "content": "x"}], ws,
+                review=True, reviewer="claude-haiku-4-5", auto_revise=True, max_rounds=1))
+        finally:
+            agent.run_agent, llm.review_code = real, rr
+        expect(evs[-1]["passed"] is False, "a red test masked by trailing debug pokes is NOT passed")
+        expect(reviewed["n"] == 0, "the failing test blocks the review even after exit-0 debug")
+    check("agent-review: trailing exit-0 debug cannot mask a red test", trailing_debug_cannot_mask_red_test)
+
 
 if __name__ == "__main__":
     print("== review off =="); test_review_off_is_plain_build()
