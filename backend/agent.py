@@ -223,15 +223,31 @@ def _exec_tool(name: str, args: dict, workspace: str, run_id: str,
 
 # ---------------- Ollama agent loop (native tool calling) ----------------
 
+OLLAMA_STEP_TIMEOUT = 420  # one agent step; 8192 tokens fit this even for a slow model
+
+
 def _ollama_step(model: str, messages: list[dict]) -> dict:
-    r = requests.post(
-        f"{llm.OLLAMA_URL}/api/chat",
-        json={"model": model, "messages": messages, "stream": False,
-              "tools": tools.ollama_tools(), "options": {"num_predict": 8192}},
-        timeout=1200,
-    )
-    r.raise_for_status()
-    return r.json()["message"]
+    """One tool-calling turn against Ollama, hardened against transient instability:
+    a bounded per-step timeout (so a hung server can't wedge the agent for 20 minutes)
+    and a single retry on a transient failure (5xx / timeout / dropped connection)."""
+    last_err: Exception | None = None
+    for attempt in range(2):
+        try:
+            r = requests.post(
+                f"{llm.OLLAMA_URL}/api/chat",
+                json={"model": model, "messages": messages, "stream": False,
+                      "tools": tools.ollama_tools(), "options": {"num_predict": 8192}},
+                timeout=OLLAMA_STEP_TIMEOUT,
+            )
+            r.raise_for_status()
+            return r.json()["message"]
+        except requests.HTTPError as e:
+            last_err = e
+            if e.response is None or e.response.status_code < 500:
+                raise  # a 4xx is a real request problem; retrying won't help
+        except (requests.Timeout, requests.ConnectionError) as e:
+            last_err = e  # transient: hang or dropped connection — retry once
+    raise last_err
 
 
 def run_agent_ollama(model: str, messages: list[dict], workspace: str, run_id: str,

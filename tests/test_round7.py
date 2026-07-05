@@ -114,10 +114,88 @@ def test_first_run_health():
     check("health: honest with no API key", lambda: True)
 
 
+def test_ollama_step_hardening():
+    """A transient Ollama 500 or hang must retry once (not kill the build); a 4xx
+    fails fast. This is the gap the chess stress reruns exposed."""
+    import requests as _rq
+
+    class FakeResp:
+        def __init__(self, status, payload=None):
+            self.status_code = status
+            self._payload = payload or {}
+            self.response = self
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                err = _rq.HTTPError(str(self.status_code))
+                err.response = self
+                raise err
+
+        def json(self):
+            return self._payload
+
+    def retry_on_500():
+        calls = {"n": 0}
+
+        def fake_post(url, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return FakeResp(500)
+            return FakeResp(200, {"message": {"role": "assistant", "content": "ok"}})
+        real = agent.requests.post
+        agent.requests.post = fake_post
+        try:
+            m = agent._ollama_step("gpt-oss:20b", [{"role": "user", "content": "hi"}])
+        finally:
+            agent.requests.post = real
+        expect(calls["n"] == 2, "a 500 triggers exactly one retry")
+        expect(m["content"] == "ok", "the retry's result is returned")
+    check("ollama-step: retries once on a transient 500", retry_on_500)
+
+    def fail_fast_on_400():
+        calls = {"n": 0}
+
+        def fake_post(url, **k):
+            calls["n"] += 1
+            return FakeResp(400)
+        real = agent.requests.post
+        agent.requests.post = fake_post
+        try:
+            raised = False
+            try:
+                agent._ollama_step("m", [{"role": "user", "content": "hi"}])
+            except _rq.HTTPError:
+                raised = True
+        finally:
+            agent.requests.post = real
+        expect(raised, "a 4xx propagates")
+        expect(calls["n"] == 1, "a 4xx is not retried")
+    check("ollama-step: 4xx fails fast (no retry)", fail_fast_on_400)
+
+    def retry_on_hang():
+        calls = {"n": 0}
+
+        def fake_post(url, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise _rq.Timeout("read timed out")
+            return FakeResp(200, {"message": {"role": "assistant", "content": "recovered"}})
+        real = agent.requests.post
+        agent.requests.post = fake_post
+        try:
+            m = agent._ollama_step("m", [{"role": "user", "content": "hi"}])
+        finally:
+            agent.requests.post = real
+        expect(m["content"] == "recovered", "recovers after a single hang")
+        expect(calls["n"] == 2, "a hang is retried once")
+    check("ollama-step: retries once on a hang (timeout)", retry_on_hang)
+
+
 if __name__ == "__main__":
     print("== pipeline failure paths =="); test_pipeline_coder_failure()
     print("== agent wrapper guard =="); test_agent_wrapper_never_raises()
     print("== first-run health =="); test_first_run_health()
+    print("== ollama step hardening =="); test_ollama_step_hardening()
     import test_anvil
     print(f"\n{test_anvil.PASS} passed, {len(FAIL)} failed")
     for name, err in FAIL:
