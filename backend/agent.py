@@ -31,6 +31,8 @@ AGENT_SYSTEM = (
     "test — it would open a blocking window. Instead give it a headless self-test path "
     "(e.g. a --selftest or --frames N flag that runs a fixed number of frames and exits "
     "with code 0), and run THAT. Your shell already forces GUI toolkits headless. "
+    "Do the work yourself, writing files step by step — do NOT hand the entire task to "
+    "a single subagent; reserve subagents for narrow, well-scoped sub-parts. "
     "When the task is complete, give a brief summary of what you did."
 )
 

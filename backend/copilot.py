@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 
 import requests
 
@@ -50,9 +51,69 @@ Request: {request}
 Reply with ONLY a JSON object: {{"category": "...", "why": "<8 words max>"}}"""
 
 
+# ---------------- VRAM-fit guardrail ----------------
+# A model bigger than VRAM spills onto the CPU and crawls — on a 16GB card the 52GB
+# apps model runs ~72% on CPU and a single big generation can blow past Ollama's read
+# timeout. So after routing, if the picked local model won't fit, swap down to the
+# best-quality installed roster model that does. The paid-review loop makes up the gap.
+
+FIT_HEADROOM = 0.9   # leave VRAM for the KV cache / context window
+_VRAM: dict[str, int | None] = {}
+
+
+def _probe_vram() -> int | None:
+    """Total NVIDIA VRAM in bytes (summed across GPUs), or None if unavailable."""
+    try:
+        out = subprocess.run(["nvidia-smi", "--query-gpu=memory.total",
+                              "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=5)
+        if out.returncode != 0:
+            return None
+        mib = sum(int(x) for x in out.stdout.split() if x.strip().isdigit())
+        return mib * 1024 * 1024 if mib else None
+    except Exception:
+        return None
+
+
+def _vram_budget() -> int | None:
+    if "b" not in _VRAM:
+        _VRAM["b"] = _probe_vram()
+    return _VRAM["b"]
+
+
+def _local_model_sizes() -> dict[str, int]:
+    """Installed Ollama model -> on-disk size in bytes (a good VRAM-footprint proxy)."""
+    try:
+        r = requests.get(f"{llm.OLLAMA_URL}/api/tags", timeout=3)
+        return {m["name"]: m.get("size", 0) for m in r.json().get("models", [])}
+    except Exception:
+        return {}
+
+
+def fit_to_vram(model: str) -> tuple[str, str | None]:
+    """If `model` won't fit in VRAM, swap to the best local roster model that does.
+    Returns (model, note) — note explains the swap, or is None when nothing changed."""
+    if llm.is_api_model(model) or model.startswith(llm.LMS_PREFIX):
+        return model, None
+    vram = _vram_budget()
+    if not vram:
+        return model, None  # can't measure — leave the pick alone
+    sizes = _local_model_sizes()
+    budget = int(vram * FIT_HEADROOM)
+    if sizes.get(model, 0) <= budget:
+        return model, None  # fits (or size unknown -> assume ok)
+    installed = set(sizes)
+    for key in ("apps", "balanced", "fast"):   # best quality that still fits
+        cand = ROSTER[key]
+        if cand != model and cand in installed and 0 < sizes.get(cand, 1 << 62) <= budget:
+            gb = lambda b: f"{b / 2 ** 30:.0f}GB"
+            return cand, f"{model} ({gb(sizes[model])}) won't fit ~{gb(budget)} VRAM -> {cand} + review"
+    return model, None  # nothing smaller fits either; keep the original
+
+
 def route(request: str, router_model: str = DEFAULT_ROUTER,
           allow_api: bool = True) -> dict:
-    """Returns {model, category, why, router_ok}."""
+    """Returns {model, category, why, router_ok, fit_note}."""
     try:
         r = requests.post(
             f"{llm.OLLAMA_URL}/api/chat",
@@ -73,12 +134,16 @@ def route(request: str, router_model: str = DEFAULT_ROUTER,
     if key.startswith("api") and not allow_api:
         key = "balanced"
     model = ROSTER[key]
-    if key.startswith("api") is False:
+    note = None
+    if not key.startswith("api"):
         # verify the local pick is actually installed; degrade gracefully
         installed = set(llm.list_local_models())
         if model not in installed:
             model = ROSTER["fast"] if ROSTER["fast"] in installed else next(iter(installed), ROSTER["api_hard"])
-    return {"model": model, "category": cat, "why": why, "router_ok": ok}
+        model, note = fit_to_vram(model)  # don't hand back a model that won't fit VRAM
+    if note:
+        why = (why + " · " + note) if why else note
+    return {"model": model, "category": cat, "why": why, "router_ok": ok, "fit_note": note}
 
 
 FALLBACK_CHAIN = [ROSTER["fast"], ROSTER["balanced"], ROSTER["api_hard"], ROSTER["api_max"]]
