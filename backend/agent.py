@@ -349,9 +349,13 @@ def run_agent(model: str, messages: list[dict], workspace: str,
     _ACTIVE_MODEL["name"] = model
     gen = _dispatch_agent(model, messages, workspace, run_id, approve, depth=0)
     total_cost = 0.0
-    for ev in gen:
-        if ev.get("cost"):
-            total_cost = ev["cost"]
-        yield ev
+    try:
+        for ev in gen:
+            if ev.get("cost"):
+                total_cost = ev["cost"]
+            yield ev
+    except Exception as e:
+        # any unhandled model/tool failure surfaces as a clean message, never a crash
+        yield {"type": "final_text", "answer": f"(agent stopped on error: {type(e).__name__}: {e})"}
     yield {"type": "final", "cost": total_cost, "reviewed": False, "revised": False,
            "passed": None, "answer": "", "run_id": run_id}

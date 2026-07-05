@@ -26,12 +26,19 @@ def run_turn(model: str, messages: list[dict], *, review: bool = True,
 
     yield {"type": "stage", "stage": "coding", "model": model}
     produced = ""
-    for ev in llm.stream_chat(model, messages, system=CODER_SYSTEM):
-        if ev["type"] == "delta":
-            produced += ev["text"]
-            yield {"type": "delta", "channel": "coder", "round": 0, "text": ev["text"]}
-        elif ev["type"] == "done":
-            total_cost += ev["usage"].cost_usd
+    try:
+        for ev in llm.stream_chat(model, messages, system=CODER_SYSTEM):
+            if ev["type"] == "delta":
+                produced += ev["text"]
+                yield {"type": "delta", "channel": "coder", "round": 0, "text": ev["text"]}
+            elif ev["type"] == "done":
+                total_cost += ev["usage"].cost_usd
+    except Exception as e:
+        # coder model failed (no key, network, bad model) — report cleanly, don't crash
+        yield {"type": "review_error", "error": f"coder model failed: {type(e).__name__}: {e}"}
+        yield {"type": "final", "cost": round(total_cost, 5), "reviewed": False,
+               "revised": False, "passed": None, "answer": produced}
+        return
 
     if not (review and llm.looks_like_code(produced)):
         yield {"type": "final", "cost": round(total_cost, 5), "reviewed": False,
@@ -68,12 +75,16 @@ def run_turn(model: str, messages: list[dict], *, review: bool = True,
                 + rev["revision_instruction"]},
         ]
         new_produced = ""
-        for ev in llm.stream_chat(model, revise_msgs, system=CODER_SYSTEM):
-            if ev["type"] == "delta":
-                new_produced += ev["text"]
-                yield {"type": "delta", "channel": "revision", "round": round_i, "text": ev["text"]}
-            elif ev["type"] == "done":
-                total_cost += ev["usage"].cost_usd
+        try:
+            for ev in llm.stream_chat(model, revise_msgs, system=CODER_SYSTEM):
+                if ev["type"] == "delta":
+                    new_produced += ev["text"]
+                    yield {"type": "delta", "channel": "revision", "round": round_i, "text": ev["text"]}
+                elif ev["type"] == "done":
+                    total_cost += ev["usage"].cost_usd
+        except Exception as e:
+            yield {"type": "review_error", "error": f"revision failed: {type(e).__name__}: {e}"}
+            break
         produced = new_produced
         revised_any = True
 
