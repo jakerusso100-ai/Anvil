@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Anvil — local AI coding studio</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
+    --text: #e6e8ec; --muted: #9aa0ad; --accent: #4f8cff; --accent2: #1baf7a;
+    --warn: #eab308; --danger: #ef4444; --code-bg: #0b0d11;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 15px; }
+  body { display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+    background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  header .brand { font-weight: 600; font-size: 16px; letter-spacing: .3px; }
+  header .brand span { color: var(--accent); }
+  .ctl { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  select, button { background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+  select { max-width: 220px; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
+  button:disabled { opacity: .5; cursor: default; }
+  .switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  .switch input { accent-color: var(--accent2); width: 16px; height: 16px; }
+  #cost { margin-left: auto; font-size: 12px; color: var(--muted); }
+  #chat { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+  .msg { max-width: 880px; width: 100%; margin: 0 auto; }
+  .role { font-size: 12px; color: var(--muted); margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .bubble { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 14px; white-space: pre-wrap; line-height: 1.55; overflow-wrap: anywhere; }
+  .bubble.user { background: var(--panel2); }
+  .bubble.revision { border-color: var(--accent2); }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; overflow-x: auto; margin: 8px 0; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); }
+  .pill.coder { color: var(--accent); border-color: var(--accent); }
+  .pill.review { color: var(--warn); border-color: var(--warn); }
+  .pill.revision { color: var(--accent2); border-color: var(--accent2); }
+  .stage { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 8px; margin: 2px auto; max-width: 880px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+  .review-card { max-width: 880px; width: 100%; margin: 0 auto; border: 1px solid var(--warn);
+    border-radius: 12px; padding: 12px 14px; background: rgba(234,179,8,.06); }
+  .review-card.pass { border-color: var(--accent2); background: rgba(27,175,122,.06); }
+  .review-card h4 { margin: 0 0 6px; font-size: 14px; }
+  .issue { font-size: 13px; margin: 6px 0; padding-left: 10px; border-left: 2px solid var(--border); }
+  .sev { font-weight: 600; text-transform: uppercase; font-size: 10px; margin-right: 6px; }
+  .sev.critical { color: var(--danger); } .sev.major { color: var(--warn); } .sev.minor { color: var(--muted); }
+  footer { padding: 12px 16px; background: var(--panel); border-top: 1px solid var(--border); }
+  .composer { max-width: 880px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; }
+  textarea { flex: 1; resize: none; background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px; font-size: 15px; font-family: inherit; min-height: 46px; max-height: 200px; }
+  .hint { max-width: 880px; margin: 6px auto 0; font-size: 11px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Anvil<span>·</span>local coding studio</div>
+  <div class="ctl">coder <select id="coder"></select></div>
+  <label class="switch"><input type="checkbox" id="review" checked /> review with</label>
+  <select id="reviewer"></select>
+  <label class="switch"><input type="checkbox" id="autorev" checked /> auto-fix</label>
+  <div id="cost">$0.00000 this session</div>
+</header>
+
+<div id="chat"></div>
+
+<footer>
+  <div class="composer">
+    <textarea id="input" placeholder="Ask for code — e.g. &quot;make a snake game in pygame&quot;. Shift+Enter for newline."></textarea>
+    <button class="primary" id="send">Send</button>
+  </div>
+  <div class="hint">Local model writes the code · a paid model reviews it · on issues, the local model auto-fixes using the reviewer's guidance.</div>
+</footer>
+
+<script>
+const $ = s => document.querySelector(s);
+const chat = $("#chat");
+let sessionCost = 0;
+let history = [];  // {role, content}
+
+async function loadModels() {
+  const r = await fetch("/api/models");
+  const m = await r.json();
+  const coder = $("#coder"), reviewer = $("#reviewer");
+  for (const name of [...m.local, ...m.api]) {
+    const o = document.createElement("option");
+    o.value = name; o.textContent = name + (m.api.includes(name) ? " (API)" : " (local)");
+    coder.appendChild(o);
+  }
+  coder.value = m.default_coder;
+  for (const name of m.reviewers) {
+    const o = document.createElement("option");
+    o.value = name; o.textContent = name;
+    reviewer.appendChild(o);
+  }
+  reviewer.value = m.default_reviewer;
+}
+
+function esc(s) { return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function render(text) {
+  // minimal markdown: fenced code blocks + inline code
+  let html = ""; const parts = text.split(/```/);
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) {
+      const body = parts[i].replace(/^[a-zA-Z0-9]*\n/, "");
+      html += `<pre><code>${esc(body)}</code></pre>`;
+    } else {
+      html += esc(parts[i]).replace(/`([^`]+)`/g, "<code>$1</code>");
+    }
+  }
+  return html;
+}
+
+function addMsg(role, cls) {
+  const wrap = document.createElement("div"); wrap.className = "msg";
+  wrap.innerHTML = `<div class="role">${role}</div><div class="bubble ${cls||''}"></div>`;
+  chat.appendChild(wrap); chat.scrollTop = chat.scrollHeight;
+  return wrap.querySelector(".bubble");
+}
+function addStage(label) {
+  const s = document.createElement("div"); s.className = "stage";
+  s.innerHTML = `<span class="dot"></span><span>${label}</span>`;
+  chat.appendChild(s); chat.scrollTop = chat.scrollHeight; return s;
+}
+
+async function send() {
+  const input = $("#input"); const text = input.value.trim();
+  if (!text) return;
+  input.value = ""; $("#send").disabled = true;
+
+  addMsg("you", "user").textContent = text;
+  history.push({role: "user", content: text});
+
+  const body = {
+    model: $("#coder").value, messages: history,
+    review: $("#review").checked, reviewer: $("#reviewer").value,
+    auto_revise: $("#autorev").checked,
+  };
+
+  const resp = await fetch("/api/chat", {
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
+  });
+  const reader = resp.body.getReader(); const dec = new TextDecoder();
+  let buf = "", coderBubble = null, stageEl = null, coderText = "";
+  const revBubbles = {}, revTexts = {};  // keyed by round
+  let lastAnswer = "";
+
+  function setStage(txt) { if (stageEl) stageEl.remove(); stageEl = addStage(txt); }
+
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, {stream: true});
+    const lines = buf.split("\n\n"); buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const ev = JSON.parse(line.slice(6));
+      if (ev.type === "stage") {
+        const r = ev.round ? ` (round ${ev.round})` : "";
+        setStage(`${ev.stage}${r} — ${ev.model}`);
+        if (ev.stage === "coding") { coderBubble = addMsg(`<span class="pill coder">coder ${ev.model}</span>`, ""); }
+        if (ev.stage === "revising") {
+          revBubbles[ev.round] = addMsg(`<span class="pill revision">auto-fix round ${ev.round} · ${ev.model}</span>`, "revision");
+          revTexts[ev.round] = "";
+        }
+      } else if (ev.type === "delta") {
+        if (ev.channel === "coder") { coderText += ev.text; coderBubble.innerHTML = render(coderText); lastAnswer = coderText; }
+        else if (ev.channel === "revision") {
+          revTexts[ev.round] += ev.text; revBubbles[ev.round].innerHTML = render(revTexts[ev.round]);
+          lastAnswer = revTexts[ev.round];
+        }
+        chat.scrollTop = chat.scrollHeight;
+      } else if (ev.type === "review") {
+        if (stageEl) { stageEl.remove(); stageEl = null; }
+        const card = document.createElement("div");
+        card.className = "review-card " + (ev.verdict === "pass" ? "pass" : "");
+        let issues = ev.issues.map(i =>
+          `<div class="issue"><span class="sev ${i.severity}">${i.severity}</span>${esc(i.problem)}<br><span style="color:var(--muted)">fix: ${esc(i.fix)}</span></div>`).join("");
+        const head = ev.verdict === "pass" ? "✓ Review passed" : "⚠ Reviewer found issues";
+        card.innerHTML = `<h4>${head} · round ${ev.round} · ${esc(ev.reviewer||$("#reviewer").value)} · $${ev.cost}</h4>
+          <div style="font-size:13px;color:var(--muted)">${esc(ev.summary)}</div>${issues}`;
+        chat.appendChild(card); chat.scrollTop = chat.scrollHeight;
+      } else if (ev.type === "review_error") {
+        if (stageEl) { stageEl.remove(); stageEl = null; }
+        addMsg("review error", "").textContent = ev.error;
+      } else if (ev.type === "final") {
+        if (stageEl) { stageEl.remove(); stageEl = null; }
+        history.push({role: "assistant", content: lastAnswer});
+        sessionCost += ev.cost || 0;
+        $("#cost").textContent = "$" + sessionCost.toFixed(5) + " this session";
+        if (ev.reviewed && !ev.passed && ev.revised) {
+          const n = addStage(""); n.querySelector(".dot")?.remove();
+          n.innerHTML = "<span style='color:var(--warn)'>⚠ still had issues after auto-fix rounds — try a stronger coder or reviewer</span>";
+        }
+      }
+    }
+  }
+  $("#send").disabled = false; input.focus();
+}
+
+$("#send").onclick = send;
+$("#input").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+loadModels();
+</script>
+</body>
+</html>

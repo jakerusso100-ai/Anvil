@@ -1,0 +1,24 @@
+{
+  "remote_providers": [
+    {
+      "prefix": "or",
+      "name": "OpenRouter",
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "models": [
+        {"id": "z-ai/glm-5.1", "label": "GLM-5.1", "price_in": 0.966, "price_out": 3.036},
+        {"id": "minimax/minimax-m2.5", "label": "MiniMax-M2.5", "price_in": 0.12, "price_out": 0.48},
+        {"id": "deepseek/deepseek-v4", "label": "DeepSeek-V4", "price_in": 0.25, "price_out": 1.0}
+      ]
+    },
+    {
+      "prefix": "zai",
+      "name": "Z.ai direct",
+      "base_url": "https://api.z.ai/api/paas/v4",
+      "api_key_env": "ZAI_API_KEY",
+      "models": [
+        {"id": "glm-5.1", "label": "GLM-5.1 (direct)", "price_in": 0.966, "price_out": 3.036}
+      ]
+    }
+  ]
+}

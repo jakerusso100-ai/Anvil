@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# PyInstaller build artifacts (dist/Anvil.exe is kept as a release binary)
+build/
+*.spec
+
+# Anvil runtime data
+.anvil/
+examples/**/.anvil/
+
+# OS
+Thumbs.db
+.DS_Store
