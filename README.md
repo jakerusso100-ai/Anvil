@@ -1,51 +1,92 @@
-# Anvil — local AI coding studio
+<div align="center">
 
-A native desktop coding assistant (like Cursor + Claude Code) that runs **local
-models** for most work and escalates to paid API models only when it helps —
-with a built-in quality-review pipeline neither of those tools has.
+# ⚒ Anvil
 
-No browser, no Electron. Single-file `Anvil.exe`, or run from source.
+### A native local AI coding studio — Cursor + Claude Code, running your own models
 
-## Run
+Most of your coding happens **locally and free**. Anvil escalates to paid API models
+only when it actually helps — and a built-in **frontier-model reviewer** checks the
+local model's code and loops fixes until it passes. No browser. No Electron. One `.exe`.
 
-```powershell
-# from source
-py -3.14 desktop/main.py
+[![Release](https://img.shields.io/github/v/release/jakerusso100-ai/Anvil)](https://github.com/jakerusso100-ai/Anvil/releases/latest)
+![Tests](https://img.shields.io/badge/tests-99%20passing-brightgreen)
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![Python](https://img.shields.io/badge/python-3.14-blue)
 
-# or the standalone binary
-dist\Anvil.exe
-```
+</div>
 
-Set `ANTHROPIC_API_KEY` (optional — enables the paid reviewer and API models).
-Ollama must be running for local models.
+![Anvil in agent mode](docs/img/anvil-agent.png)
 
-## What it does
+---
 
-- **Agent mode** — the model uses tools: read/write/edit files, run commands,
-  web search + fetch, semantic codebase search, project memory, subagents,
-  Obsidian vault, and any MCP server. Permission modes (Ask / Accept edits /
-  Plan / Bypass) with diff-preview approvals and one-click revert.
-- **Chat mode** — a local model writes code, a paid model reviews it, and the
-  local model auto-fixes using the reviewer's guidance (all optional/toggleable).
-- **Auto (copilot) routing** — a small fast local model classifies each request
-  and picks the right specialist; redirects on failure; health monitoring.
-- **Editor** — file tree, tabs, syntax highlighting, tab-autocomplete (FIM),
-  live-sync when the agent edits an open file, and an integrated terminal.
-- **Sessions** persist and resume across restarts.
+## Why Anvil?
 
-See `FEATURES.md` for the full parity matrix.
+Cursor and Claude Code are excellent — but they route your work to paid cloud models
+by default. Anvil flips that: benchmark-selected **local models handle most coding for
+$0**, and paid models are an opt-in escalation, not the default. On everyday tasks the
+local models land within a few points of the frontier; on one benchmark a local model
+*matched* it outright. When a task is genuinely hard, a paid reviewer catches the local
+model's mistakes for fractions of a cent.
 
-## Layout
+You get the full IDE-agent experience — agent tools, diff review, permission modes,
+semantic search, an editor with tab-autocomplete and a terminal — on your own hardware.
 
-| Path | What |
+## Download
+
+Grab **`Anvil.exe`** from the [**latest release**](https://github.com/jakerusso100-ai/Anvil/releases/latest) —
+single file, no install, no Python required.
+
+- [Ollama](https://ollama.com) running locally (for the local models)
+- `ANTHROPIC_API_KEY` in your environment *(optional — enables the paid reviewer & API models; local coding works fully without it)*
+
+Or run from source: `py -3.14 desktop/main.py`
+
+## Features
+
+**Agent mode** — the model uses real tools:
+
+| | |
 |---|---|
-| `backend/` | agent loop, tools, model adapters, copilot router, semantic index, MCP, sessions |
-| `desktop/` | PySide6 GUI + shared pipeline |
-| `tests/`   | 94-test suite (units, security, GUI, agent protocol, guards) |
-| `dist/`    | standalone `Anvil.exe` |
-| `examples/`| a space game an Anvil agent built end-to-end from a non-coder prompt |
+| 📁 Files | read / write / edit, confined to the workspace |
+| 💻 Shell | run commands (GUI programs auto-run headless — can't hang the agent) |
+| 🌐 Web | search + fetch — local models get internet like Claude |
+| 🔍 Codebase search | semantic (embeddings) search by meaning, not keywords |
+| 🧠 Memory | the agent saves learnings that reload every session |
+| 👥 Subagents | delegate focused subtasks to keep context clean |
+| 🔌 MCP | connect any Model Context Protocol server |
+| 📓 Obsidian | search / read / write your notes vault |
 
-## Model roster (benchmarked)
+...with **permission modes** (Ask / Accept edits / Plan / Bypass), **diff-preview
+approvals**, red-green **diff cards** with Accept/Reject, and one-click **checkpoint
+revert**.
+
+**Chat mode** — a local model writes the code, a paid model reviews it, and the local
+model auto-fixes using the reviewer's guidance. All toggleable; live cost meter.
+
+**Auto copilot routing** — a fast local model classifies each request and picks the
+right specialist; redirects on failure; live health monitoring.
+
+**Editor** — file tree, tabs, syntax highlighting, **Tab-autocomplete** (fill-in-middle),
+**live-sync** when the agent edits an open file, and an integrated **terminal**.
+
+**Sessions** persist and resume across restarts.
+
+See [`FEATURES.md`](FEATURES.md) for the full Cursor/Claude Code parity matrix.
+
+## What it builds
+
+These two programs were built by Anvil agents **end-to-end from a non-coder's plain-English
+prompt, with zero human intervention** — auto-routed to a local model, self-tested headless,
+verified working. ([`examples/`](examples/))
+
+| "make me a space game like asteroids but better" | "make me a 3D maze game" |
+|:---:|:---:|
+| ![space game](docs/img/example-space-game.png) | ![3D maze](docs/img/example-maze-3d.png) |
+| pygame · asteroids that split, UFOs, power-ups, lives | pygame raycasting engine · first-person · minimap |
+
+*(A Minecraft-style Panda3D voxel builder is in `examples/` too.)*
+
+## Model roster
 
 Chosen by a benchmark suite, not by vibes:
 
@@ -59,8 +100,37 @@ Chosen by a benchmark suite, not by vibes:
 | Semantic search | `nomic-embed-text` |
 | Paid escalation | Haiku → Sonnet → Opus / Fable |
 
+Remote OpenAI-compatible providers (OpenRouter, z.ai) are wired in too — GLM-5.1,
+MiniMax-M2.5, DeepSeek all work in agent mode with a key.
+
+## Project layout
+
+| Path | What |
+|---|---|
+| `backend/` | agent loop, tools, model adapters, copilot router, semantic index, MCP, sessions |
+| `desktop/` | PySide6 GUI + shared pipeline |
+| `tests/`   | 99-test suite (units, security, GUI, agent protocol, failure-path guards) |
+| `examples/`| programs Anvil agents built from non-coder prompts |
+| `docs/`    | screenshots |
+
+## Build the exe yourself
+
+```powershell
+py -3.14 -m pip install pyinstaller
+py -3.14 -m PyInstaller --noconfirm --onefile --windowed --name Anvil ^
+  --paths desktop --paths backend --collect-submodules anthropic ^
+  --collect-submodules ddgs --collect-submodules mcp --add-data "providers.json;." ^
+  --exclude-module PyQt5 --exclude-module PyQt6 desktop/main.py
+```
+
 ## Tests
 
 ```powershell
-for %t in (test_anvil test_round2 test_round3 test_round4 test_round5 test_round6) do py -3.14 tests\%t.py
+for %t in (test_anvil test_round2 test_round3 test_round4 test_round5 test_round6 test_round7) do py -3.14 tests\%t.py
 ```
+
+---
+
+<div align="center">
+<sub>Built with local models, benchmarked, stress-tested, and shipped. MIT-spirited — do what you like.</sub>
+</div>
