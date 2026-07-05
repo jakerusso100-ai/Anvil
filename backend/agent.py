@@ -35,6 +35,48 @@ AGENT_SYSTEM = (
 )
 
 
+PROMPT_MAKER_SYSTEM = (
+    "You are Anvil's Prompt Builder. You do NOT write code or build anything — your only "
+    "job is to interview the user and turn their rough idea into ONE precise, complete "
+    "build prompt that a separate coding model can execute in a single shot.\n\n"
+    "How to work:\n"
+    "- Ask focused clarifying questions, a few at a time — never a wall of twenty. Ask a "
+    "short round, then STOP and wait for the user's answer before asking more.\n"
+    "- Cover the dimensions that actually matter for THIS kind of project. For a game: "
+    "2D or 3D, genre, single- or multiplayer, controls, core mechanics, win/lose "
+    "conditions, art/visual style, target language and library, and scope. For an app: "
+    "platform, the core features, data and whether it must persist between runs, the UI, "
+    "and the look and feel. Adapt the questions to what they actually asked for.\n"
+    "- You MAY use web_search / web_fetch to check common conventions or libraries, "
+    "vault_search / vault_read to pull the user's own notes or design docs, and "
+    "read_file / list_dir / codebase_search to understand an existing project. Keep it "
+    "light — the user is your main source, not the web.\n"
+    "- Don't over-interview. After two to four short rounds, or as soon as you have "
+    "enough, propose the finished prompt.\n\n"
+    "When you are ready, output the final prompt EXACTLY in this form:\n"
+    "===BUILD PROMPT===\n"
+    "<the complete, self-contained prompt in plain language — specific and detailed, "
+    "capturing everything the user asked for, and ending with an instruction to build it "
+    "fully and self-test it headless before saying it's done>\n"
+    "===END BUILD PROMPT===\n"
+    "Then tell the user in one line that they can send it to the builder or ask you to "
+    "tweak it."
+)
+
+_PROMPT_START = "===BUILD PROMPT==="
+_PROMPT_END = "===END BUILD PROMPT==="
+
+
+def extract_build_prompt(text: str) -> str | None:
+    """Pull the finished build prompt out of a Prompt Maker message, if present."""
+    if not text or _PROMPT_START not in text:
+        return None
+    body = text.split(_PROMPT_START, 1)[1]
+    if _PROMPT_END in body:
+        body = body.split(_PROMPT_END, 1)[0]
+    return body.strip() or None
+
+
 def _vault_note() -> str:
     if tools.VAULT_PATH:
         return ("\n\nThe user's Obsidian notes vault is connected. Use vault_search / "
@@ -191,8 +233,8 @@ def _ollama_step(model: str, messages: list[dict]) -> dict:
 
 
 def run_agent_ollama(model: str, messages: list[dict], workspace: str, run_id: str,
-                     approve: Callable, depth: int = 0) -> Iterator[dict]:
-    system = AGENT_SYSTEM + _vault_note() + _project_instructions(workspace)
+                     approve: Callable, depth: int = 0, system_base: str | None = None) -> Iterator[dict]:
+    system = (system_base or AGENT_SYSTEM) + _vault_note() + _project_instructions(workspace)
     msgs = [{"role": "system", "content": system}] + messages
     for step in range(MAX_STEPS):
         yield {"type": "stage", "stage": "thinking", "model": model, "step": step + 1}
@@ -223,11 +265,11 @@ def run_agent_ollama(model: str, messages: list[dict], workspace: str, run_id: s
 # ---------------- Anthropic agent loop ----------------
 
 def run_agent_anthropic(model: str, messages: list[dict], workspace: str, run_id: str,
-                        approve: Callable, depth: int = 0) -> Iterator[dict]:
+                        approve: Callable, depth: int = 0, system_base: str | None = None) -> Iterator[dict]:
     import anthropic
 
     client = anthropic.Anthropic()
-    system = AGENT_SYSTEM + _vault_note() + _project_instructions(workspace)
+    system = (system_base or AGENT_SYSTEM) + _vault_note() + _project_instructions(workspace)
     msgs = [dict(m) for m in messages]
     total_cost = 0.0
     kwargs = {"model": model, "max_tokens": 8000, "system": system,
@@ -276,8 +318,8 @@ def _openai_tools() -> list[dict]:
 
 def run_agent_openai(base_url: str, real_model: str, api_key: str | None,
                      prices: tuple, messages: list[dict], workspace: str, run_id: str,
-                     approve: Callable, depth: int = 0) -> Iterator[dict]:
-    system = AGENT_SYSTEM + _vault_note() + _project_instructions(workspace)
+                     approve: Callable, depth: int = 0, system_base: str | None = None) -> Iterator[dict]:
+    system = (system_base or AGENT_SYSTEM) + _vault_note() + _project_instructions(workspace)
     msgs = [{"role": "system", "content": system}] + [dict(m) for m in messages]
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     total_cost = 0.0
@@ -322,10 +364,10 @@ def run_agent_openai(base_url: str, real_model: str, api_key: str | None,
 
 
 def _dispatch_agent(model: str, messages: list[dict], workspace: str, run_id: str,
-                    approve: Callable, depth: int = 0) -> Iterator[dict]:
+                    approve: Callable, depth: int = 0, system_base: str | None = None) -> Iterator[dict]:
     remote = llm.remote_provider_for(model)
     if llm.is_api_model(model):
-        return run_agent_anthropic(model, messages, workspace, run_id, approve, depth)
+        return run_agent_anthropic(model, messages, workspace, run_id, approve, depth, system_base)
     if remote:
         prov, real_id = remote
         key = __import__("os").environ.get(prov["api_key_env"])
@@ -335,19 +377,20 @@ def _dispatch_agent(model: str, messages: list[dict], workspace: str, run_id: st
         spec = next((m for m in prov["models"] if m["id"] == real_id), {})
         return run_agent_openai(prov["base_url"], real_id, key,
                                 (spec.get("price_in", 0), spec.get("price_out", 0)),
-                                messages, workspace, run_id, approve, depth)
+                                messages, workspace, run_id, approve, depth, system_base)
     if model.startswith(llm.LMS_PREFIX):
         return run_agent_openai(llm.LMSTUDIO_URL, model[len(llm.LMS_PREFIX):], None, (0, 0),
-                                messages, workspace, run_id, approve, depth)
-    return run_agent_ollama(model, messages, workspace, run_id, approve, depth)
+                                messages, workspace, run_id, approve, depth, system_base)
+    return run_agent_ollama(model, messages, workspace, run_id, approve, depth, system_base)
 
 
 def run_agent(model: str, messages: list[dict], workspace: str,
-              approve: Callable[[str, dict], bool] = lambda n, a: True) -> Iterator[dict]:
+              approve: Callable[[str, dict], bool] = lambda n, a: True,
+              system_base: str | None = None) -> Iterator[dict]:
     run_id = time.strftime("%Y%m%d-%H%M%S")
     yield {"type": "run_started", "run_id": run_id}
     _ACTIVE_MODEL["name"] = model
-    gen = _dispatch_agent(model, messages, workspace, run_id, approve, depth=0)
+    gen = _dispatch_agent(model, messages, workspace, run_id, approve, depth=0, system_base=system_base)
     total_cost = 0.0
     try:
         for ev in gen:
@@ -359,6 +402,20 @@ def run_agent(model: str, messages: list[dict], workspace: str,
         yield {"type": "final_text", "answer": f"(agent stopped on error: {type(e).__name__}: {e})"}
     yield {"type": "final", "cost": total_cost, "reviewed": False, "revised": False,
            "passed": None, "answer": "", "run_id": run_id}
+
+
+def run_prompt_maker(model: str, messages: list[dict], workspace: str,
+                     approve: Callable[[str, dict], bool] = lambda n, a: True) -> Iterator[dict]:
+    """Interactive prompt-engineering turn: the model interviews the user (with
+    read-only research tools) and eventually emits a finished build prompt. Same event
+    contract as run_agent, but scoped to research tools and the Prompt Maker persona."""
+    prev_scope = tools.SCOPE
+    tools.SCOPE = tools.RESEARCH_TOOLS
+    try:
+        yield from run_agent(model, messages, workspace, approve,
+                             system_base=PROMPT_MAKER_SYSTEM)
+    finally:
+        tools.SCOPE = prev_scope
 
 
 def _gather_built_files(workspace: str, paths: set[str], cap: int = 24000) -> str:

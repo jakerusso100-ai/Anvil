@@ -128,11 +128,22 @@ def detect_vaults() -> list[str]:
 # tools that modify state or execute code -> may require user approval
 DANGEROUS = {"write_file", "edit_file", "bash", "vault_write"}
 
+# Read-only research tools — the set Prompt Maker is scoped to (it must not build).
+RESEARCH_TOOLS = {"list_dir", "read_file", "web_search", "web_fetch",
+                  "codebase_search", "vault_search", "vault_read"}
+
+# When set to a set of tool names, only those built-ins are exposed to the model.
+# Used to give Prompt Maker research-only tools without touching the agent runners.
+SCOPE: set[str] | None = None
+
 
 def _active_specs() -> list[dict]:
     import mcp_client
     base = [t for t in TOOL_SPECS if t["name"] != "codebase_search" or INDEX_READY]
-    return base + (VAULT_SPECS if VAULT_PATH else []) + mcp_client.specs()
+    specs = base + (VAULT_SPECS if VAULT_PATH else []) + mcp_client.specs()
+    if SCOPE is not None:
+        specs = [t for t in specs if t["name"] in SCOPE]
+    return specs
 
 
 def is_dangerous(name: str) -> bool:

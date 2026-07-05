@@ -448,6 +448,8 @@ class Worker(QThread):
         return bool(self.reply.get())
 
     def _make_gen(self):
+        if self.mode == "prompt":
+            return agent.run_prompt_maker(approve=self.approve, **self.kwargs)
         if self.mode == "agent":
             if "review" in self.kwargs:  # build + gated frontier review of the result
                 return agent.run_agent_reviewed(approve=self.approve, **self.kwargs)
@@ -590,11 +592,16 @@ class Main(QMainWindow):
         seg = QWidget(); sl = QHBoxLayout(seg); sl.setContentsMargins(8, 0, 8, 0); sl.setSpacing(0)
         self.btn_agent = QPushButton("Agent"); self.btn_agent.setObjectName("seg")
         self.btn_chat = QPushButton("Chat"); self.btn_chat.setObjectName("seg")
-        for b in (self.btn_agent, self.btn_chat):
+        self.btn_prompt = QPushButton("Prompt"); self.btn_prompt.setObjectName("seg")
+        self.btn_prompt.setToolTip("Prompt Maker: the model interviews you (2D or 3D? "
+                                   "solo or multiplayer? …) and writes a polished build "
+                                   "prompt you can hand to the builder.")
+        for b in (self.btn_agent, self.btn_chat, self.btn_prompt):
             b.setCheckable(True); sl.addWidget(b)
         self.btn_agent.setChecked(True)
         self.btn_agent.clicked.connect(lambda: self.set_mode("Agent"))
         self.btn_chat.clicked.connect(lambda: self.set_mode("Chat"))
+        self.btn_prompt.clicked.connect(lambda: self.set_mode("Prompt"))
         hl.addWidget(seg)
 
         self.coder = QComboBox(); self.coder.setMinimumWidth(250); hl.addWidget(self.coder)
@@ -880,6 +887,7 @@ class Main(QMainWindow):
         self.mode = mode
         self.btn_agent.setChecked(mode == "Agent")
         self.btn_chat.setChecked(mode == "Chat")
+        self.btn_prompt.setChecked(mode == "Prompt")
 
     def open_settings(self):
         dlg = SettingsDialog(self, self.settings)
@@ -994,7 +1002,11 @@ class Main(QMainWindow):
 
         s = self.settings
         perm = self.perm.currentText()
-        if self.mode == "Agent":
+        if self.mode == "Prompt":
+            kwargs = {"model": model, "messages": list(self.history), "workspace": self.workspace}
+            self.worker = Worker("prompt", kwargs, perm, s["router"], s["allow_api"],
+                                 expanded, self.workspace)
+        elif self.mode == "Agent":
             kwargs = {"model": model, "messages": list(self.history), "workspace": self.workspace}
             if s["review_agent"]:  # local model builds, then a paid reviewer checks it
                 kwargs.update(review=True, reviewer=s["reviewer"],
@@ -1091,6 +1103,10 @@ class Main(QMainWindow):
         elif t == "final_text":
             if ev.get("answer"):
                 self.history.append({"role": "assistant", "content": ev["answer"]})
+                if self.mode == "Prompt":
+                    bp = agent.extract_build_prompt(ev["answer"])
+                    if bp:
+                        self.offer_build_prompt(bp)
         elif t == "final":
             self.status.setText("")
             if ev.get("answer"):
@@ -1105,6 +1121,22 @@ class Main(QMainWindow):
                     "Still had issues after auto-fix rounds — try a stronger coder or reviewer.")
             self.send_btn.setText("➤")
             self.send_btn.setEnabled(True)
+
+    def offer_build_prompt(self, prompt_text: str):
+        """Prompt Maker finished a build prompt — show a one-click handoff to the builder."""
+        card = self.add_bubble("✓ build prompt ready", "cardReviewPass")
+        card.set_text("Prompt Maker drafted a build prompt. Send it to the builder, or "
+                      "keep chatting here to refine it first.")
+        btn = QPushButton("Send to builder →"); btn.setObjectName("ghost")
+        btn.setFixedWidth(170)
+        btn.clicked.connect(lambda: self._use_build_prompt(prompt_text))
+        card.layout().addWidget(btn)
+
+    def _use_build_prompt(self, prompt_text: str):
+        self.set_mode("Agent")
+        self.input.setPlainText(prompt_text)
+        self.input.setFocus()
+        self.status.setText("Switched to Agent mode — review the prompt and hit send to build.")
 
     def restore_checkpoint(self):
         if not self.last_run_id:

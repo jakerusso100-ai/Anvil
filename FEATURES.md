@@ -16,6 +16,7 @@ Legend: ✅ done · 🔨 this build · 🗓 planned · ➖ not applicable locall
 | Slash commands | ✅ | /clear, /help, /model; more 🗓 |
 | Quality-review pipeline | ✅ | local coder + paid reviewer + auto-fix loop (Anvil original — neither app has this) |
 | Reviewed **builds** (Agent mode) | ✅ | after a local build finishes, a paid reviewer inspects the written files + self-test and loops concrete fixes back into the agent — toggleable, zero human intervention |
+| **Prompt Maker** mode | ✅ | Anvil original — a 3rd mode that interviews you (2D/3D? solo/multiplayer? …) with research-only tools and drafts a polished build prompt, with one-click handoff to the builder |
 | Cost/usage tracking | ✅ | per-session cost meter |
 | Model routing (local+API) | ✅ | Ollama + LM Studio + Anthropic in one picker |
 | Subagents / agent teams | ✅ | `spawn_subagent` tool runs a nested agent loop for a focused subtask, returns a summary (keeps parent context clean); depth-limited to 2 |
