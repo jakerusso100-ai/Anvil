@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -162,11 +163,30 @@ def anthropic_tools() -> list[dict]:
 
 # ---------------- implementations ----------------
 
+def _posix_shell() -> str | None:
+    """Locate a POSIX shell (git-bash on Windows) so the agent's bash-style commands
+    — heredocs, `$(...)`, POSIX quoting — actually work. Without this, Windows runs
+    them through cmd.exe and every heredoc/pipe idiom the model writes fails."""
+    if sys.platform != "win32":
+        return None  # shell=True already uses /bin/sh on POSIX
+    for p in (r"C:\Program Files\Git\bin\bash.exe",
+              r"C:\Program Files (x86)\Git\bin\bash.exe"):
+        if Path(p).is_file():
+            return p
+    exe = shutil.which("bash")
+    # skip the System32 WSL launcher — it shells into a whole other distro
+    if exe and "System32" not in exe and "system32" not in exe:
+        return exe
+    return None
+
+
 def _run_bash(command: str, root: Path, timeout: int) -> str:
-    """Run a shell command with two safety guards learned from live testing:
-      1. Force GUI toolkits headless (SDL/Qt offscreen) so a windowed program
+    """Run a shell command with guards learned from live testing:
+      1. Use a real POSIX shell (git-bash) on Windows so bash-style commands work,
+         instead of cmd.exe silently choking on heredocs and POSIX syntax.
+      2. Force GUI toolkits headless (SDL/Qt offscreen) so a windowed program
          renders without opening a blocking window.
-      2. Hard-kill the whole process tree on timeout — plain subprocess timeout
+      3. Hard-kill the whole process tree on timeout — plain subprocess timeout
          on Windows kills the shell but orphans GUI children (and their windows).
     """
     env = dict(os.environ)
@@ -175,7 +195,9 @@ def _run_bash(command: str, root: Path, timeout: int) -> str:
     env.setdefault("QT_QPA_PLATFORM", "offscreen")  # Qt: no window
     env["PYTHONUNBUFFERED"] = "1"
     flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)  # Windows only
-    proc = subprocess.Popen(command, shell=True, cwd=str(root), env=env,
+    bash = _posix_shell()
+    args = [bash, "-c", command] if bash else command
+    proc = subprocess.Popen(args, shell=(bash is None), cwd=str(root), env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                             creationflags=flags)
     note = ""
