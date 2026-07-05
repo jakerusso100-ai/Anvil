@@ -135,8 +135,10 @@ def main():
             last_answer = ev.get("answer") or ""
 
     dt = time.perf_counter() - t0
+    build_fail = agent._agent_failed(last_answer)
+    status = f"BUILD FAILED ({build_fail})" if build_fail else "build finished"
     print(f"\n=== DONE in {dt:.0f}s · {steps} steps · {tool_calls} tool calls · "
-          f"{errors} error-results · files: {sorted(files)} ===")
+          f"{errors} error-results · {status} · files: {sorted(files)} ===")
     print(f"=== FINAL MESSAGE:\n{last_answer[:600]}")
 
 

@@ -139,11 +139,93 @@ def test_local_reviewer_skips():
     check("agent-review: local reviewer name is not billed", body)
 
 
+def test_failed_build_never_passes():
+    """A crashed / incomplete build must never be reported as passed, and must not be
+    reviewed as if it finished (the bug the chess stress run exposed)."""
+    def body():
+        ws = tempfile.mkdtemp()
+
+        def fake_run_agent(model, messages, workspace, approve=lambda n, a: True):
+            Path(workspace, "requirements.txt").write_text("python-chess>=1.9")
+            yield {"type": "run_started", "run_id": "rid"}
+            yield {"type": "tool_call", "name": "write_file", "args": {"path": "requirements.txt"}}
+            yield {"type": "tool_result", "output": "ok"}
+            yield {"type": "final_text", "answer": "(agent stopped on error: HTTPError 500)"}
+            yield {"type": "final", "cost": 0.001, "reviewed": False, "revised": False,
+                   "passed": None, "answer": "", "run_id": "rid"}
+
+        reviewed = {"n": 0}
+
+        def fake_review(reviewer, req, produced):
+            reviewed["n"] += 1
+            return ({"verdict": "pass", "summary": "x", "issues": [],
+                     "revision_instruction": ""}, llm.Usage(1, 1, 0.001))
+
+        real, rr = agent.run_agent, llm.review_code
+        agent.run_agent, llm.review_code = fake_run_agent, fake_review
+        try:
+            evs = list(agent.run_agent_reviewed(
+                "m", [{"role": "user", "content": "build chess"}], ws,
+                review=True, reviewer="claude-haiku-4-5", max_rounds=1))
+        finally:
+            agent.run_agent, llm.review_code = real, rr
+        expect(evs[-1]["passed"] is False, "a crashed build is never passed")
+        expect(reviewed["n"] == 0, "a failed build is not sent to the reviewer")
+        expect(not any(e["type"] == "review" for e in evs), "no review verdict emitted")
+    check("agent-review: crashed build is never reported as passed", body)
+
+
+def test_failed_build_retries_then_passes():
+    """A failed first build is retried with the error fed back; if the retry finishes,
+    the review runs on the completed build."""
+    def body():
+        ws = tempfile.mkdtemp()
+        calls = {"n": 0}
+
+        def fake_run_agent(model, messages, workspace, approve=lambda n, a: True):
+            calls["n"] += 1
+            yield {"type": "run_started", "run_id": "rid"}
+            if calls["n"] == 1:
+                Path(workspace, "requirements.txt").write_text("python-chess>=1.9")
+                yield {"type": "final_text", "answer": "(agent stopped on error: boom)"}
+            else:
+                Path(workspace, "chess.py").write_text(
+                    "import chess\ndef main():\n    return chess.Board()\n")
+                yield {"type": "tool_call", "name": "write_file", "args": {"path": "chess.py"}}
+                yield {"type": "final_text", "answer": "built the chess game, self-test passed"}
+            yield {"type": "final", "cost": 0.001, "reviewed": False, "revised": False,
+                   "passed": None, "answer": "", "run_id": "rid"}
+
+        seen = {}
+
+        def fake_review(reviewer, req, produced):
+            seen["produced"] = produced
+            return ({"verdict": "pass", "summary": "complete", "issues": [],
+                     "revision_instruction": ""}, llm.Usage(1, 1, 0.001))
+
+        real, rr = agent.run_agent, llm.review_code
+        agent.run_agent, llm.review_code = fake_run_agent, fake_review
+        try:
+            evs = list(agent.run_agent_reviewed(
+                "m", [{"role": "user", "content": "build chess"}], ws,
+                review=True, reviewer="claude-haiku-4-5", auto_revise=True, max_rounds=2))
+        finally:
+            agent.run_agent, llm.review_code = real, rr
+        expect(calls["n"] == 2, "the build was retried after the failure")
+        expect("chess.py" in seen.get("produced", ""), "review runs on the completed retry")
+        expect(evs[-1]["passed"] is True, "a retry that finishes + passes review passes")
+        expect(evs[-1]["revised"] is True, "marked as revised (a retry happened)")
+        expect(sum(1 for e in evs if e["type"] == "review") == 1, "review ran once, on the good build")
+    check("agent-review: failed build retries with error fed back", body)
+
+
 if __name__ == "__main__":
     print("== review off =="); test_review_off_is_plain_build()
     print("== review pass =="); test_review_pass_no_refix()
     print("== revise then pass =="); test_review_revise_then_pass()
     print("== local reviewer skip =="); test_local_reviewer_skips()
+    print("== failed build not passed =="); test_failed_build_never_passes()
+    print("== failed build retries =="); test_failed_build_retries_then_passes()
     import test_anvil
     print(f"\n{test_anvil.PASS} passed, {len(FAIL)} failed")
     for name, err in FAIL:

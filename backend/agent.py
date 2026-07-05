@@ -441,6 +441,46 @@ def _gather_built_files(workspace: str, paths: set[str], cap: int = 24000) -> st
     return "\n\n".join(chunks)
 
 
+_FAIL_MARKERS = ("(agent stopped on error", "(agent error", "(agent hit the step limit",
+                 "(request declined by safety", "timed out", "to use agent mode.")
+
+
+def _agent_failed(answer: str) -> str | None:
+    """If the agent's final text signals it did NOT finish cleanly, return a short
+    reason (else None). A crashed or truncated build must never be reported as passed."""
+    a = (answer or "").strip()
+    if a.startswith("(agent ") or any(m in a for m in _FAIL_MARKERS):
+        return a[:200]
+    return None
+
+
+def _file_manifest(workspace: str, paths: set[str]) -> str:
+    ws = Path(workspace)
+    items = []
+    for rel in sorted(paths):
+        p = Path(rel) if Path(rel).is_absolute() else ws / rel
+        try:
+            sz = p.stat().st_size if p.is_file() else 0
+        except OSError:
+            sz = 0
+        items.append(f"{rel} ({sz}B)")
+    return ", ".join(items) if items else "(none)"
+
+
+def _review_input(workspace: str, written: set[str], files_text: str) -> str:
+    """Wrap the built files with a completeness header so the reviewer judges the whole
+    deliverable — not a lone stub — against the request."""
+    return (
+        "[AUTONOMOUS BUILD — completeness review]\n"
+        "The user expects a COMPLETE, RUNNABLE program that fully satisfies the request. "
+        f"Files the build actually wrote: {_file_manifest(workspace, written)}. If the "
+        "required functionality is missing, only stubbed, or the program would not run "
+        "end to end, the verdict MUST be 'revise' — never pass a skeleton or a lone "
+        "requirements/config file as complete.\n\n"
+        f"----- ALL FILES PRODUCED -----\n{files_text}"
+    )
+
+
 def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
                        approve: Callable[[str, dict], bool] = lambda n, a: True,
                        *, review: bool = True, reviewer: str = "claude-haiku-4-5",
@@ -464,6 +504,7 @@ def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
 
     for round_i in range(1, max_rounds + 1):
         # --- build (round 1) or fix (later rounds): run the agent to completion ---
+        round_answer = ""
         for ev in run_agent(model, conv, workspace, approve):
             et = ev.get("type")
             if et == "run_started":
@@ -475,22 +516,45 @@ def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
                 total_cost = round(total_cost + (ev.get("cost") or 0), 5)
                 continue  # swallow inner finals; the outer final is emitted once, at the end
             if et == "final_text":
-                last_answer = ev.get("answer") or last_answer
+                round_answer = ev.get("answer") or round_answer
             if et == "tool_call" and ev.get("name") in ("write_file", "edit_file"):
                 p = (ev.get("args") or {}).get("path")
                 if p:
                     written.add(p)
             yield ev
+        last_answer = round_answer or last_answer
 
         if not reviewing:
             break
+
+        # A build that crashed / timed out / hit the step limit is NOT done and can never
+        # be "passed". Retry with the error fed back if we have rounds left, else fail.
+        fail = _agent_failed(round_answer)
+        if fail:
+            passed = False
+            if auto_revise and round_i < max_rounds:
+                revised = True
+                yield {"type": "review_error",
+                       "error": f"build did not finish ({fail}) — retrying"}
+                conv = conv + [
+                    {"role": "assistant", "content": round_answer or "(build did not finish)"},
+                    {"role": "user", "content":
+                     "Your build did not finish — it stopped with:\n" + fail +
+                     "\n\nContinue from the files already on disk and COMPLETE the task in "
+                     "full, then run your headless self-test to confirm it works."},
+                ]
+                continue
+            break
+
         produced = _gather_built_files(workspace, written)
         if not produced.strip():
-            break  # nothing on disk to review
+            passed = False   # build 'finished' but wrote nothing usable
+            break
 
         yield {"type": "stage", "stage": "reviewing", "model": reviewer, "round": round_i}
         try:
-            rev, rusage = llm.review_code(reviewer, user_request, produced)
+            rev, rusage = llm.review_code(reviewer, user_request,
+                                          _review_input(workspace, written, produced))
         except Exception as e:
             yield {"type": "review_error", "error": f"review failed: {type(e).__name__}: {e}"}
             break
