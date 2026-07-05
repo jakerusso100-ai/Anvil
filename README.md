@@ -9,7 +9,7 @@ only when it actually helps — and a built-in **frontier-model reviewer** check
 local model's code and loops fixes until it passes. No browser. No Electron. One `.exe`.
 
 [![Release](https://img.shields.io/github/v/release/jakerusso100-ai/Anvil)](https://github.com/jakerusso100-ai/Anvil/releases/latest)
-![Tests](https://img.shields.io/badge/tests-105%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-122%20passing-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![Python](https://img.shields.io/badge/python-3.14-blue)
 
