@@ -77,6 +77,7 @@ def main():
     task_id = sys.argv[1] if len(sys.argv) > 1 else "3d_game"
     model_arg = sys.argv[2] if len(sys.argv) > 2 else "auto"
     reviewer = sys.argv[3] if len(sys.argv) > 3 else "none"
+    checker = sys.argv[4] if len(sys.argv) > 4 else "none"  # 4th arg -> quality squad
     prompt = STRESS_TASKS[task_id]
     ws = Path(__file__).parent / "examples" / f"stress_{task_id}"
     ws.mkdir(parents=True, exist_ok=True)
@@ -89,19 +90,23 @@ def main():
         model = model_arg
 
     review_note = f" · reviewer={reviewer}" if reviewer != "none" else " · local-only"
-    print(f"=== STRESS: {task_id} · model={model}{review_note} ===\n")
+    squad_note = f" · squad-checker={checker}" if checker != "none" else ""
+    print(f"=== STRESS: {task_id} · model={model}{review_note}{squad_note} ===\n")
     t0 = time.perf_counter()
     steps = tool_calls = errors = 0
     files = set()
     last_answer = ""
-    if reviewer != "none":
+    msg = [{"role": "user", "content": prompt}]
+    if checker != "none":
+        stream = agent.run_agent_squad(
+            model, msg, str(ws), approve=lambda n, a: True,
+            checker_model=checker, review=(reviewer != "none"), reviewer=reviewer)
+    elif reviewer != "none":
         stream = agent.run_agent_reviewed(
-            model, [{"role": "user", "content": prompt}], str(ws),
-            approve=lambda n, a: True,
+            model, msg, str(ws), approve=lambda n, a: True,
             review=True, reviewer=reviewer, auto_revise=True, max_rounds=2)
     else:
-        stream = agent.run_agent(model, [{"role": "user", "content": prompt}], str(ws),
-                                 approve=lambda n, a: True)
+        stream = agent.run_agent(model, msg, str(ws), approve=lambda n, a: True)
     for ev in stream:
         t = ev["type"]
         if t == "stage" and ev.get("step"):
@@ -118,6 +123,9 @@ def main():
             if "ERROR" in ev["output"] or "Traceback" in ev["output"] or "timed out" in ev["output"]:
                 errors += 1
             print(f"        -> {out}", flush=True)
+        elif t == "stage" and (ev.get("stage") == "building"
+                               or str(ev.get("stage", "")).startswith("quality-check")):
+            print(f"\n[SQUAD] === {ev['stage']} ({ev['model']}) ===", flush=True)
         elif t == "stage" and ev.get("stage") == "reviewing":
             print(f"[REVIEW] {ev['model']} inspecting the build (round {ev['round']})...", flush=True)
         elif t == "review":

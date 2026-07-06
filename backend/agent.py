@@ -643,3 +643,107 @@ def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
 
     yield {"type": "final", "cost": total_cost, "reviewed": reviewing,
            "revised": revised, "passed": passed, "answer": "", "run_id": run_id}
+
+
+FIXER_SYSTEM = (
+    "You are a senior quality-check engineer on Anvil. Another model just built the code "
+    "in this workspace. Your job is NOT to rewrite it from scratch — INSPECT what is there "
+    "and make targeted fixes so it fully works. Read the files, run the headless self-test "
+    "to see the real state, then fix the issues in your assigned focus area by editing the "
+    "files. Re-run the self-test until it exits 0. Keep edits minimal and surgical. If a "
+    "self-test or tests do not exist yet, add a small headless one so the build is "
+    "verifiable. When done, briefly state what you fixed, or that nothing needed fixing."
+)
+
+# Each checker sub-agent gets one focus so it reviews deeply instead of skimming.
+DEFAULT_LENSES = [
+    ("runs & complete",
+     "make it actually run and be complete — fix any crash, import error, or failing "
+     "self-test, and fill in anything missing, stubbed, or left as a TODO so it fully "
+     "does what the user asked (no placeholders)."),
+    ("correctness",
+     "find and fix correctness bugs — wrong output, broken edge cases, or rules/logic "
+     "implemented incorrectly — and prove the fix with the self-test."),
+]
+
+
+def run_agent_squad(model: str, messages: list[dict], workspace: str,
+                    approve: Callable[[str, dict], bool] = lambda n, a: True, *,
+                    checker_model: str | None = None, lenses: list | None = None,
+                    review: bool = False, reviewer: str = "claude-haiku-4-5") -> Iterator[dict]:
+    """Main model builds; then a squad of quality-check sub-agents inspect the code and
+    directly FIX what they find (each with a focused lens), re-testing as they go —
+    exactly 'main model writes, sub-agents look through and fill in / fix'. The checker
+    can be the same local model (free extra passes with fresh context) or a stronger/paid
+    one. An optional final paid review gives a verdict. Fully automated."""
+    checker = checker_model or model
+    lenses = DEFAULT_LENSES if lenses is None else lenses
+    user_request = next((m["content"] for m in messages if m.get("role") == "user"), "")
+    st = {"run_id": None, "cost": 0.0, "written": set(), "last_test": None}
+
+    def drive(mdl, msgs, system_base):
+        """Run one agent pass, streaming its events and capturing build state."""
+        last_call, cur_is_test = None, False
+        st["last_test"] = None  # per-pass; the squad judges on the latest pass's test
+        for ev in run_agent(mdl, msgs, workspace, approve, system_base=system_base):
+            et = ev.get("type")
+            if et == "run_started":
+                if st["run_id"] is None:
+                    st["run_id"] = ev["run_id"]
+                    yield ev
+                continue
+            if et == "final":
+                st["cost"] = round(st["cost"] + (ev.get("cost") or 0), 5)
+                continue
+            if et == "tool_call":
+                last_call = ev.get("name")
+                if last_call in ("write_file", "edit_file"):
+                    p = (ev.get("args") or {}).get("path")
+                    if p:
+                        st["written"].add(p)
+                elif last_call == "bash":
+                    cur_is_test = _is_test_cmd((ev.get("args") or {}).get("command", ""))
+            if et == "tool_result" and last_call == "bash" and cur_is_test:
+                st["last_test"] = (_exit_code(ev.get("output") or ""), ev.get("output") or "")
+            yield ev
+
+    # 1) main build
+    yield {"type": "stage", "stage": "building", "model": model, "round": 0}
+    yield from drive(model, list(messages), None)
+
+    # 2) quality-check squad — each sub-agent inspects and fixes directly
+    for key, lens in lenses:
+        if not st["written"]:
+            break  # nothing was built; no point checking
+        yield {"type": "stage", "stage": f"quality-check: {key}", "model": checker, "round": 0}
+        fixer_msg = [{"role": "user", "content":
+                      "Another model built a project in this workspace for this request:\n\n"
+                      f"<request>\n{user_request}\n</request>\n\n"
+                      f"Inspect what is there and fix issues in this focus area — {lens}\n"
+                      "Make targeted edits (do not rewrite from scratch), then run the "
+                      "headless self-test to confirm it passes."}]
+        yield from drive(checker, fixer_msg, FIXER_SYSTEM)
+
+    # 3) verdict from the final self-test, plus an optional paid review
+    lt = st["last_test"]
+    passed = None if lt is None else (lt[0] == 0)
+    if review and reviewer in llm.API_MODELS and st["written"]:
+        produced = _gather_built_files(workspace, st["written"])
+        if produced.strip():
+            note = ("the build's self-test passed (exit 0)" if passed else
+                    "the self-test is FAILING" if passed is False else "no self-test detected")
+            yield {"type": "stage", "stage": "reviewing", "model": reviewer, "round": 1}
+            try:
+                rev, rusage = llm.review_code(reviewer, user_request,
+                                              _review_input(workspace, st["written"], produced, note))
+                st["cost"] = round(st["cost"] + rusage.cost_usd, 5)
+                yield {"type": "review", "round": 1, "verdict": rev["verdict"],
+                       "summary": rev["summary"], "issues": rev["issues"],
+                       "reviewer": reviewer, "cost": round(rusage.cost_usd, 5)}
+                if rev["verdict"] != "pass":
+                    passed = False
+            except Exception as e:
+                yield {"type": "review_error", "error": f"review failed: {type(e).__name__}: {e}"}
+
+    yield {"type": "final", "cost": st["cost"], "reviewed": bool(review),
+           "revised": True, "passed": passed, "answer": "", "run_id": st["run_id"]}

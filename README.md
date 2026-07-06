@@ -9,7 +9,7 @@ only when it actually helps — and a built-in **frontier-model reviewer** check
 local model's code and loops fixes until it passes. No browser. No Electron. One `.exe`.
 
 [![Release](https://img.shields.io/github/v/release/jakerusso100-ai/Anvil)](https://github.com/jakerusso100-ai/Anvil/releases/latest)
-![Tests](https://img.shields.io/badge/tests-122%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-127%20passing-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![Python](https://img.shields.io/badge/python-3.14-blue)
 
@@ -70,6 +70,12 @@ and just say *"build me a game."* It **interviews you** (2D or 3D? solo or multi
 what mechanics?), can check the web and your Obsidian notes, then drafts a precise,
 self-contained build prompt — with a one-click **"Send to builder →"** handoff. Turns a
 vague idea into the kind of detailed spec local models build best from.
+
+**Quality-check squad** — for the hard stuff, flip on the squad: your main model builds,
+then **checker sub-agents inspect the code and directly fix or fill in whatever they
+find** — each with a focused lens (does it run? is it correct?), re-testing as they go.
+The checkers can be the same local model (free extra passes with fresh eyes) or a
+stronger/paid one. A build only passes if its self-test is actually green.
 
 **Chat mode** — a local model writes the code, a paid model reviews it, and the local
 model auto-fixes using the reviewer's guidance. All toggleable; live cost meter.

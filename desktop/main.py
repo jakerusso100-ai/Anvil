@@ -451,6 +451,8 @@ class Worker(QThread):
         if self.mode == "prompt":
             return agent.run_prompt_maker(approve=self.approve, **self.kwargs)
         if self.mode == "agent":
+            if "checker_model" in self.kwargs:  # build + fixer sub-agent squad
+                return agent.run_agent_squad(approve=self.approve, **self.kwargs)
             if "review" in self.kwargs:  # build + gated frontier review of the result
                 return agent.run_agent_reviewed(approve=self.approve, **self.kwargs)
             return agent.run_agent(approve=self.approve, **self.kwargs)
@@ -526,6 +528,18 @@ class SettingsDialog(QDialog):
         self.review = QCheckBox(); self.review.setChecked(s["review"]); form.addRow("Review code (Chat mode)", self.review)
         self.review_agent = QCheckBox(); self.review_agent.setChecked(s["review_agent"])
         form.addRow("Review builds (Agent mode)", self.review_agent)
+        self.squad = QCheckBox(); self.squad.setChecked(s["squad"])
+        self.squad.setToolTip("After the main model builds, checker sub-agents inspect the "
+                              "code and directly fix/fill-in what they find, re-testing as "
+                              "they go. Slower, but catches bugs the builder missed.")
+        form.addRow("Quality squad (fixer sub-agents)", self.squad)
+        self.checker = QComboBox()
+        self.checker.addItem("(same as coder)", "")
+        for m in (llm.list_local_models() + llm.API_MODELS):
+            self.checker.addItem(m, m)
+        _ci = self.checker.findData(s.get("checker", ""))
+        self.checker.setCurrentIndex(_ci if _ci >= 0 else 0)
+        form.addRow("Squad checker model", self.checker)
         self.autofix = QCheckBox(); self.autofix.setChecked(s["auto_fix"]); form.addRow("Auto-fix on issues", self.autofix)
         self.rounds = QSpinBox(); self.rounds.setRange(1, 5); self.rounds.setValue(s["rounds"])
         form.addRow("Max fix rounds", self.rounds)
@@ -549,6 +563,7 @@ class SettingsDialog(QDialog):
     def values(self) -> dict:
         return {"reviewer": self.reviewer.currentText(), "review": self.review.isChecked(),
                 "review_agent": self.review_agent.isChecked(),
+                "squad": self.squad.isChecked(), "checker": self.checker.currentData() or "",
                 "auto_fix": self.autofix.isChecked(), "rounds": self.rounds.value(),
                 "auto_approve": self.approve.isChecked(), "router": self.router.currentText(),
                 "allow_api": self.allow_api.isChecked(), "vault": self.vault.currentText().strip()}
@@ -568,7 +583,8 @@ class Main(QMainWindow):
         import tools as _tools
         vaults = _tools.detect_vaults()
         self.settings = {"reviewer": "claude-haiku-4-5", "review": True,
-                         "review_agent": True, "auto_fix": True,
+                         "review_agent": True, "squad": False, "checker": "",
+                         "auto_fix": True,
                          "rounds": 2, "auto_approve": False,
                          "router": copilot.DEFAULT_ROUTER, "allow_api": True,
                          "vault": vaults[0] if vaults else ""}
@@ -1008,7 +1024,10 @@ class Main(QMainWindow):
                                  expanded, self.workspace)
         elif self.mode == "Agent":
             kwargs = {"model": model, "messages": list(self.history), "workspace": self.workspace}
-            if s["review_agent"]:  # local model builds, then a paid reviewer checks it
+            if s["squad"]:  # main model builds, then checker sub-agents inspect + fix
+                kwargs.update(checker_model=(s["checker"] or model),
+                              review=s["review_agent"], reviewer=s["reviewer"])
+            elif s["review_agent"]:  # local model builds, then a paid reviewer checks it
                 kwargs.update(review=True, reviewer=s["reviewer"],
                               auto_revise=s["auto_fix"], max_rounds=s["rounds"])
             self.worker = Worker("agent", kwargs, perm, s["router"], s["allow_api"],
@@ -1054,6 +1073,10 @@ class Main(QMainWindow):
             elif ev["stage"] == "revising":
                 self.bubbles[("revision", ev["round"])] = self.add_bubble(
                     f"auto-fix round {ev['round']} · {ev['model']}", "cardRev")
+            elif ev["stage"] == "building":
+                self.add_bubble(f"🔨 building · {ev['model']}", "cardRoute")
+            elif str(ev["stage"]).startswith("quality-check"):
+                self.add_bubble(f"🔎 {ev['stage']} · {ev['model']}", "cardRoute")
         elif t == "delta":
             key = (ev["channel"], ev.get("round", 0))
             if key not in self.bubbles:
