@@ -608,6 +608,10 @@ _TEST_HINTS = (
     # Rust / Go / C# / Java
     "cargo test", "go test", "dotnet test", "mvn test", "mvn verify", "gradle test",
     "gradlew test", "gradlew build", "gradle build",
+    # A plain-Java project (no build tool) verifies by running its class: `java Main`
+    # runs main()'s self-check. Trailing space matches `java Foo` but NOT a `javac`
+    # compile (which is not, on its own, a passing self-test).
+    "java ",
     # C/C++ / Ruby / PHP
     "ctest", "make test", "make check", "rspec", "phpunit",
 )
@@ -615,6 +619,8 @@ _TEST_HINTS = (
 
 def _is_test_cmd(cmd: str) -> bool:
     c = (cmd or "").lower()
+    if "-version" in c or "--version" in c or "--help" in c or "-h " in c:
+        return False  # a toolchain/version/help probe is not a passing self-test
     return any(h in c for h in _TEST_HINTS)
 
 

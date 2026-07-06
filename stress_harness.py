@@ -110,6 +110,16 @@ STRESS_TASKS = {
         "and isn't blank, and use visual_check to confirm it looks like a lit 3d scene with "
         "spheres and shadows — before telling me it's done."
     ),
+    "java_cli": (
+        "make me a small command-line program in java. it should be able to check if a "
+        "word is a palindrome (like 'racecar') and also print the first N fibonacci "
+        "numbers. i'm not a coder, so create the whole thing, write the java code, and make "
+        "it compile and run with javac then java — no build tools like maven or gradle, just "
+        "plain java files. include a headless self-test (a main path or method that runs "
+        "known cases: racecar->palindrome, hello->not, fib(7)->0 1 1 2 3 5 8) that prints "
+        "ALL TESTS PASSED and exits 0, or exits non-zero if anything is wrong. compile it "
+        "and RUN that self-test yourself to prove it works before telling me it's done."
+    ),
     "todo_app": (
         "build me a little to-do list app with a window where i can type a task, hit add, "
         "and see it in a list. i want to be able to check things off and delete them, and "
@@ -120,6 +130,12 @@ STRESS_TASKS = {
 
 
 def main():
+    # Console may be cp1252 (Windows); a model's answer can contain chars it can't encode
+    # (e.g. a non-breaking hyphen), which would crash the final print AFTER a good build.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     task_id = sys.argv[1] if len(sys.argv) > 1 else "3d_game"
     model_arg = sys.argv[2] if len(sys.argv) > 2 else "auto"
     reviewer = sys.argv[3] if len(sys.argv) > 3 else "none"

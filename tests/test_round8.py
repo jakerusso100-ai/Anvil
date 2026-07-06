@@ -404,10 +404,15 @@ def test_test_gate_is_multilanguage():
         should_detect = ["python -m pytest", "python game.py --selftest", "npm test",
                          "npm run test", "yarn test", "cargo test", "go test ./...",
                          "dotnet test", "gradlew build", "gradle test", "jest", "vitest",
-                         "mvn test", "ctest", "phpunit", "rspec"]
+                         "mvn test", "ctest", "phpunit", "rspec",
+                         # plain-Java project (no build tool): running the class IS the test
+                         "java Main", "javac Main.java && java Main", "java -ea Solver"]
         for c in should_detect:
             expect(agent._is_test_cmd(c), f"should detect test command: {c!r}")
-        for c in ["ls -la", "npm install", "python app.py", "git status", "go build", "cargo build"]:
+        for c in ["ls -la", "npm install", "python app.py", "git status", "go build",
+                  "cargo build",
+                  # a bare compile / toolchain probe is NOT a passing self-test
+                  "javac Main.java", "java -version", "java --version", "python --version"]:
             expect(not agent._is_test_cmd(c), f"should NOT flag non-test: {c!r}")
     check("test-gate: recognizes tests across languages, not just Python", body)
 
