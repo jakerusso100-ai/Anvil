@@ -373,7 +373,31 @@ def test_empty_build_reports_clearly():
     check("agent-review: empty build reports 'no files', not passed", body)
 
 
+def test_review_payload_cap_marks_truncation():
+    """The Opus chess false-negative: a 30KB build overran the 24KB review cap, so the
+    reviewer saw a cut-off file and wrongly called the CODE 'truncated'. The cap is now
+    large, and any real trim is clearly marked as Anvil's payload limit, not a defect."""
+    def body():
+        ws = tempfile.mkdtemp()
+        Path(ws, "small.py").write_text("x = 1\n")
+        out = agent._gather_built_files(ws, {"small.py"})
+        expect("x = 1" in out and "NOT a code defect" not in out,
+               "a small file is included whole, no truncation marker")
+        # a 30KB two-file build (Opus's size) fits now — nothing trimmed
+        Path(ws, "a.py").write_text("# " + "A" * 15000 + "\n")
+        Path(ws, "b.py").write_text("# " + "B" * 15000 + "\n")
+        out2 = agent._gather_built_files(ws, {"a.py", "b.py"})
+        expect("NOT a code defect" not in out2, "a 30KB build fits the review payload, no false trim")
+        # a genuinely huge file is trimmed, but marked as Anvil's doing
+        Path(ws, "huge.py").write_text("# " + "C" * 120000 + "\n")
+        out3 = agent._gather_built_files(ws, {"huge.py"})
+        expect("NOT a code defect" in out3, "an over-cap file is trimmed with a clear 'not a defect' marker")
+        expect(len(out3) < 120000, "payload stays bounded")
+    check("review: payload cap fits real builds + marks any trim as not-a-defect", body)
+
+
 if __name__ == "__main__":
+    print("== payload cap =="); test_review_payload_cap_marks_truncation()
     print("== empty build =="); test_empty_build_reports_clearly()
     print("== review off =="); test_review_off_is_plain_build()
     print("== review pass =="); test_review_pass_no_refix()

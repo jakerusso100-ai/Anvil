@@ -439,7 +439,16 @@ def run_prompt_maker(model: str, messages: list[dict], workspace: str,
         tools.SCOPE = prev_scope
 
 
-def _gather_built_files(workspace: str, paths: set[str], cap: int = 24000) -> str:
+# Big enough that whole multi-file builds fit — a too-small cap truncates real code in
+# the review payload and the reviewer wrongly reports the CODE as 'truncated/incomplete'
+# (a false REVISE that cost an Opus chess build a pass). Any truncation is marked as
+# Anvil's payload limit so the reviewer never mistakes it for a defect.
+_REVIEW_CAP = 80000
+_TRUNCATED = ("\n# [... this file is longer; the rest was trimmed to fit Anvil's review "
+              "payload. This trim is NOT a code defect — do not flag it as incomplete ...]")
+
+
+def _gather_built_files(workspace: str, paths: set[str], cap: int = _REVIEW_CAP) -> str:
     """Concatenate the files the agent wrote/edited so the reviewer can inspect them."""
     ws = Path(workspace)
     chunks, total = [], 0
@@ -452,9 +461,11 @@ def _gather_built_files(workspace: str, paths: set[str], cap: int = 24000) -> st
         except OSError:
             continue
         header = f"# ===== {rel} =====\n"
-        if total + len(header) >= cap:
-            break
-        body = text[: cap - total - len(header)]
+        if total + len(header) + 40 >= cap:
+            chunks.append(f"# ===== {rel} (omitted — review payload full; not a defect) =====")
+            continue
+        avail = cap - total - len(header)
+        body = text if len(text) <= avail else text[:avail] + _TRUNCATED
         chunks.append(header + body)
         total += len(header) + len(body)
     return "\n\n".join(chunks)
