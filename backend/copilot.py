@@ -22,7 +22,10 @@ ROSTER = {
     "fast":     "gpt-oss:20b",              # 0.88 hard @ 167 t/s
     "apps":     "qwen3-coder-next:latest",  # 1.00 app suite @ 28 t/s
     "balanced": "qwen3-coder:30b",          # 0.88/0.84
-    "vision":   "qwen3-vl:8b",              # 1.00 vision
+    "vision":   "qwen2.5vl:7b",             # coding-vision bake-off winner (2026-07-06):
+                                            # aced UI->spec, code OCR+bug, error-screenshot
+                                            # debug; 2-3x faster than qwen3-vl:8b (which
+                                            # returned nothing on the error traceback)
     "api_hard": "claude-sonnet-5",          # 1.00 everywhere, cheap-ish
     "api_max":  "claude-opus-4-8",          # the big gun
 }
