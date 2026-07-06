@@ -159,6 +159,7 @@ def main():
     steps = tool_calls = errors = 0
     files = set()
     last_answer = ""
+    certified = None
     msg = [{"role": "user", "content": prompt}]
     if checker != "none":
         stream = agent.run_agent_squad(
@@ -201,6 +202,7 @@ def main():
         elif t == "review_error":
             print(f"[REVIEW] error: {ev['error']}", flush=True)
         elif t == "final":
+            certified = ev.get("passed")  # True=self-test green, False=red, None=none detected
             if ev.get("reviewed"):
                 verdict = "PASSED" if ev.get("passed") else ("still-had-issues" if ev.get("revised") else "n/a")
                 print(f"[REVIEW] final: reviewed=True revised={ev.get('revised')} -> {verdict}", flush=True)
@@ -209,9 +211,11 @@ def main():
 
     dt = time.perf_counter() - t0
     build_fail = agent._agent_failed(last_answer)
+    cert = {True: "CERTIFIED (self-test green)", False: "NOT certified (self-test red)",
+            None: "no self-test detected"}.get(certified, "n/a")
     status = f"BUILD FAILED ({build_fail})" if build_fail else "build finished"
     print(f"\n=== DONE in {dt:.0f}s · {steps} steps · {tool_calls} tool calls · "
-          f"{errors} error-results · {status} · files: {sorted(files)} ===")
+          f"{errors} error-results · {status} · self-test: {cert} · files: {sorted(files)} ===")
     print(f"=== FINAL MESSAGE:\n{last_answer[:600]}")
 
 
