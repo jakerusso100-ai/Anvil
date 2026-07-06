@@ -46,6 +46,12 @@ to avoid, so you don't burn steps rediscovering (or getting wrong) an unfamiliar
 - [[Debugging systematically]] — the loop that beats flailing
 - [[Writing a build that passes review]] — what Anvil's gate + reviewer check
 
+## Other languages (with skeletons + the test command Anvil's gate needs)
+- [[Node.js and TypeScript]] — package.json + `npm test`, ESM/CJS, built-in test runner
+- [[Rust and cargo]] — cargo project + `cargo test`, Result/? error handling, the borrow checker
+- [[Go programs]] — go.mod + `go test ./...`, error handling, gofmt
+- [[C-sharp and dotnet]] — `dotnet new` + `dotnet test`, top-level statements
+
 ## Other ecosystems (not Python)
 - [[Minecraft Fabric mod (Java Gradle)]] — mod structure; check for a JDK first
 - [[Godot and GDScript basics]] — engine + GDScript patterns
