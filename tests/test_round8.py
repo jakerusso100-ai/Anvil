@@ -334,7 +334,47 @@ def test_failing_selftest_is_never_passed():
     check("agent-review: trailing exit-0 debug cannot mask a red test", trailing_debug_cannot_mask_red_test)
 
 
+def test_empty_build_reports_clearly():
+    """The Fabric run: the model researched for 19 steps and wrote zero files. An empty
+    build must not pass and should say so, not report an ambiguous 'n/a'."""
+    def body():
+        ws = tempfile.mkdtemp()
+
+        def fake_run_agent(model, messages, workspace, approve=lambda n, a: True):
+            yield {"type": "run_started", "run_id": "rid"}
+            # only research, never writes a file
+            yield {"type": "tool_call", "name": "web_search", "args": {"query": "fabric mod template"}}
+            yield {"type": "tool_result", "name": "web_search", "output": "some results"}
+            yield {"type": "tool_call", "name": "bash", "args": {"command": "curl -s https://api.github.com/x"}}
+            yield {"type": "tool_result", "name": "bash", "output": "[exit 0]\n{}"}
+            yield {"type": "final_text", "answer": "I looked into it"}
+            yield {"type": "final", "cost": 0.001, "reviewed": False, "revised": False,
+                   "passed": None, "answer": "", "run_id": "rid"}
+
+        reviewed = {"n": 0}
+
+        def fake_review(reviewer, req, produced):
+            reviewed["n"] += 1
+            return ({"verdict": "pass", "summary": "x", "issues": [],
+                     "revision_instruction": ""}, llm.Usage(1, 1, 0.001))
+
+        real, rr = agent.run_agent, llm.review_code
+        agent.run_agent, llm.review_code = fake_run_agent, fake_review
+        try:
+            evs = list(agent.run_agent_reviewed(
+                "m", [{"role": "user", "content": "build a fabric mod"}], ws,
+                review=True, reviewer="claude-haiku-4-5", max_rounds=2))
+        finally:
+            agent.run_agent, llm.review_code = real, rr
+        expect(evs[-1]["passed"] is False, "a build that wrote no files is not passed")
+        expect(reviewed["n"] == 0, "nothing to review -> reviewer not called")
+        expect(any(e["type"] == "review_error" and "no files" in e["error"] for e in evs),
+               "an explicit 'no files' signal is emitted, not silent n/a")
+    check("agent-review: empty build reports 'no files', not passed", body)
+
+
 if __name__ == "__main__":
+    print("== empty build =="); test_empty_build_reports_clearly()
     print("== review off =="); test_review_off_is_plain_build()
     print("== review pass =="); test_review_pass_no_refix()
     print("== revise then pass =="); test_review_revise_then_pass()

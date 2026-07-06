@@ -607,6 +607,8 @@ def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
         produced = _gather_built_files(workspace, written)
         if not produced.strip():
             passed = False   # build 'finished' but wrote nothing usable
+            yield {"type": "review_error",
+                   "error": "build produced no files — nothing to review (not passed)"}
             break
 
         test_note = ("the build ran no self-test — judge runnability from the code"
