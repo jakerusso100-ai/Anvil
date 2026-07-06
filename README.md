@@ -9,7 +9,7 @@ only when it actually helps — and a built-in **frontier-model reviewer** check
 local model's code and loops fixes until it passes. No browser. No Electron. One `.exe`.
 
 [![Release](https://img.shields.io/github/v/release/jakerusso100-ai/Anvil)](https://github.com/jakerusso100-ai/Anvil/releases/latest)
-![Tests](https://img.shields.io/badge/tests-127%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-137%20passing-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![Python](https://img.shields.io/badge/python-3.14-blue)
 
@@ -137,6 +137,7 @@ py -3.14 -m pip install pyinstaller
 py -3.14 -m PyInstaller --noconfirm --onefile --windowed --name Anvil ^
   --paths desktop --paths backend --collect-submodules anthropic ^
   --collect-submodules ddgs --collect-submodules mcp --add-data "providers.json;." ^
+  --add-data "playbook;playbook" ^
   --exclude-module PyQt5 --exclude-module PyQt6 desktop/main.py
 ```
 

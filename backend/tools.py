@@ -107,10 +107,21 @@ VAULT_SPECS = [
 # set by the UI (settings) — when set, vault tools are exposed to the agent
 VAULT_PATH: str | None = None
 
-# The coding playbook shipped WITH Anvil (repo_root/playbook) — always searched for RAG so
-# every user gets the reference patterns out of the box, on top of their own vault.
-PLAYBOOK_PATH: str | None = (str(Path(__file__).parent.parent / "playbook")
-                             if (Path(__file__).parent.parent / "playbook").is_dir() else None)
+# The coding playbook shipped WITH Anvil — always searched for RAG so every user gets the
+# reference patterns out of the box, on top of their own vault. Lives at repo_root/playbook
+# in dev, and inside the PyInstaller bundle (_MEIPASS/playbook) in the packaged .exe.
+def _find_playbook() -> str | None:
+    cands = []
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        cands.append(Path(sys._MEIPASS) / "playbook")
+    cands.append(Path(__file__).parent.parent / "playbook")
+    for c in cands:
+        if c.is_dir():
+            return str(c)
+    return None
+
+
+PLAYBOOK_PATH: str | None = _find_playbook()
 
 
 _LAST_VAULT_LOOKUP: list[str] = []   # note names injected by the most recent vault_lookup
@@ -157,16 +168,15 @@ def _playbook_semantic(query: str, k: int, floor: float = 0.45) -> list | None:
         return None
     sig = hashlib.md5(("|".join(sorted(s for s, _ in notes))
                        + str(sum(len(b) for _, b in notes))).encode()).hexdigest()
+    cache_f = Path.home() / ".anvil" / "rag_vectors.json"   # writable in dev AND the .exe
     vecs = _PB_VEC["notes"] if _PB_VEC.get("sig") == sig else None
-    if vecs is None:
-        cache_f = Path(PLAYBOOK_PATH) / ".rag_vectors.json"
-        if cache_f.exists():
-            try:
-                data = json.loads(cache_f.read_text())
-                if data.get("sig") == sig:
-                    vecs = data["notes"]; _PB_VEC.update(data)
-            except Exception:
-                pass
+    if vecs is None and cache_f.exists():
+        try:
+            data = json.loads(cache_f.read_text())
+            if data.get("sig") == sig:
+                vecs = data["notes"]; _PB_VEC.update(data)
+        except Exception:
+            pass
     try:
         import semindex
         if vecs is None:                       # (re)build + cache the embeddings once
@@ -174,8 +184,8 @@ def _playbook_semantic(query: str, k: int, floor: float = 0.45) -> list | None:
                     for s, b in notes]
             _PB_VEC.update({"sig": sig, "notes": vecs})
             try:
-                (Path(PLAYBOOK_PATH) / ".rag_vectors.json").write_text(
-                    json.dumps({"sig": sig, "notes": vecs}))
+                cache_f.parent.mkdir(parents=True, exist_ok=True)
+                cache_f.write_text(json.dumps({"sig": sig, "notes": vecs}))
             except Exception:
                 pass
         qv = semindex._embed([query])[0]
