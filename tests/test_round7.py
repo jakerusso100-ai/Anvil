@@ -191,7 +191,32 @@ def test_ollama_step_hardening():
     check("ollama-step: retries once on a hang (timeout)", retry_on_hang)
 
 
+def test_context_management():
+    """Long agent runs must not silently lose early history: old tool output is trimmed,
+    but the system prompt, the task, and recent steps survive."""
+    def body():
+        msgs = [{"role": "system", "content": "SYSTEM"}, {"role": "user", "content": "TASK"}]
+        for i in range(20):
+            msgs.append({"role": "assistant", "content": f"step {i}"})
+            msgs.append({"role": "tool", "content": "X" * 3000, "tool_name": "bash"})
+        before = sum(len(str(m.get("content", ""))) for m in msgs)
+        agent._manage_context(msgs)
+        after = sum(len(str(m.get("content", ""))) for m in msgs)
+        expect(after < before, "a long conversation gets trimmed")
+        expect(msgs[0]["content"] == "SYSTEM" and msgs[1]["content"] == "TASK",
+               "system prompt + original task are preserved verbatim")
+        expect("trimmed" not in str(msgs[-1]["content"]), "the most recent tool output is kept full")
+        expect(any("trimmed" in str(m.get("content", "")) for m in msgs[:-6]),
+               "old bulky tool output is trimmed")
+        short = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"},
+                 {"role": "tool", "content": "small output"}]
+        agent._manage_context(short)
+        expect(short[-1]["content"] == "small output", "a short conversation is left untouched")
+    check("context: long runs trim old tool output, keep system+task+recent", body)
+
+
 if __name__ == "__main__":
+    print("== context management =="); test_context_management()
     print("== pipeline failure paths =="); test_pipeline_coder_failure()
     print("== agent wrapper guard =="); test_agent_wrapper_never_raises()
     print("== first-run health =="); test_first_run_health()

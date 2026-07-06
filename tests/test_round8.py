@@ -396,7 +396,24 @@ def test_review_payload_cap_marks_truncation():
     check("review: payload cap fits real builds + marks any trim as not-a-defect", body)
 
 
+def test_test_gate_is_multilanguage():
+    """The audit's headline fix: the self-test gate must recognize non-Python test
+    commands, or Anvil can't certify Node/Rust/Go/C#/Java builds (npm test passed but
+    was reported 'no self-test detected')."""
+    def body():
+        should_detect = ["python -m pytest", "python game.py --selftest", "npm test",
+                         "npm run test", "yarn test", "cargo test", "go test ./...",
+                         "dotnet test", "gradlew build", "gradle test", "jest", "vitest",
+                         "mvn test", "ctest", "phpunit", "rspec"]
+        for c in should_detect:
+            expect(agent._is_test_cmd(c), f"should detect test command: {c!r}")
+        for c in ["ls -la", "npm install", "python app.py", "git status", "go build", "cargo build"]:
+            expect(not agent._is_test_cmd(c), f"should NOT flag non-test: {c!r}")
+    check("test-gate: recognizes tests across languages, not just Python", body)
+
+
 if __name__ == "__main__":
+    print("== multi-language gate =="); test_test_gate_is_multilanguage()
     print("== payload cap =="); test_review_payload_cap_marks_truncation()
     print("== empty build =="); test_empty_build_reports_clearly()
     print("== review off =="); test_review_off_is_plain_build()

@@ -237,6 +237,24 @@ def _exec_tool(name: str, args: dict, workspace: str, run_id: str,
 # ---------------- Ollama agent loop (native tool calling) ----------------
 
 OLLAMA_STEP_TIMEOUT = 420  # one agent step; 8192 tokens fit this even for a slow model
+# Explicit context window so we don't inherit a model's tiny 4K default (which silently
+# drops early history on long builds). 16K is the sweet spot for a 16GB card.
+OLLAMA_NUM_CTX = 16384
+_CTX_BUDGET_CHARS = 44000   # ~ within 16K tokens; trim old tool output past this
+
+
+def _manage_context(msgs: list[dict], keep_recent: int = 6) -> None:
+    """Keep long agent runs inside the context window: when the conversation grows past
+    the budget, truncate the CONTENT of OLD tool results (the bulkiest, least-needed-
+    verbatim part) in place — so the system prompt, the task, and what files were written
+    survive instead of Ollama silently dropping them. Recent steps are kept full."""
+    total = sum(len(str(m.get("content", ""))) for m in msgs)
+    if total <= _CTX_BUDGET_CHARS or len(msgs) <= keep_recent + 2:
+        return
+    for m in msgs[:-keep_recent]:
+        c = m.get("content")
+        if m.get("role") == "tool" and isinstance(c, str) and len(c) > 400:
+            m["content"] = c[:300] + "\n[… older tool output trimmed to save context …]"
 
 
 def _ollama_step(model: str, messages: list[dict]) -> dict:
@@ -249,7 +267,8 @@ def _ollama_step(model: str, messages: list[dict]) -> dict:
             r = requests.post(
                 f"{llm.OLLAMA_URL}/api/chat",
                 json={"model": model, "messages": messages, "stream": False,
-                      "tools": tools.ollama_tools(), "options": {"num_predict": 8192}},
+                      "tools": tools.ollama_tools(),
+                      "options": {"num_predict": 8192, "num_ctx": OLLAMA_NUM_CTX}},
                 timeout=OLLAMA_STEP_TIMEOUT,
             )
             r.raise_for_status()
@@ -270,6 +289,7 @@ def run_agent_ollama(model: str, messages: list[dict], workspace: str, run_id: s
     msgs = [{"role": "system", "content": system}] + messages
     for step in range(MAX_STEPS):
         yield {"type": "stage", "stage": "thinking", "model": model, "step": step + 1}
+        _manage_context(msgs)   # keep long runs inside the context window
         m = _ollama_step(model, msgs)
         msgs.append(m)
         calls = m.get("tool_calls") or []
@@ -523,8 +543,17 @@ def _exit_code(out: str) -> int | None:
 # Shell commands that constitute a build's verification (vs. exploratory debugging).
 # We judge the build on the last of THESE, so trailing debug commands can't mask a
 # red test (the exact hole the chess run exposed: failing unittest, then exit-0 pokes).
-_TEST_HINTS = ("unittest", "pytest", "selftest", "discover", "test_", "tests/",
-               "tests\\", "nose", "py.test")
+_TEST_HINTS = (
+    # Python
+    "unittest", "pytest", "py.test", "nose", "selftest", "discover", "test_", "tests/", "tests\\",
+    # JavaScript / TypeScript
+    "npm test", "npm run test", "yarn test", "pnpm test", "jest", "vitest", "mocha", "playwright test",
+    # Rust / Go / C# / Java
+    "cargo test", "go test", "dotnet test", "mvn test", "mvn verify", "gradle test",
+    "gradlew test", "gradlew build", "gradle build",
+    # C/C++ / Ruby / PHP
+    "ctest", "make test", "make check", "rspec", "phpunit",
+)
 
 
 def _is_test_cmd(cmd: str) -> bool:
