@@ -84,8 +84,12 @@ def extract_build_prompt(text: str) -> str | None:
 
 def _vault_note() -> str:
     if tools.VAULT_PATH:
-        return ("\n\nThe user's Obsidian notes vault is connected. Use vault_search / "
-                "vault_read when their notes, projects, or past decisions are relevant; "
+        return ("\n\nAn Obsidian knowledge vault is connected. BEFORE you web_search or "
+                "trial-and-error your way through an unfamiliar library, framework, API, or "
+                "error, vault_search it FIRST — the vault may hold a correct, ready-to-adapt "
+                "pattern (a working skeleton, a self-test recipe, a known gotcha). Prefer "
+                "vault_search over web_search for how-to-code questions; vault_read opens a "
+                "note in full. Also use it for the user's own notes/decisions, and "
                 "vault_write to save notes when asked.")
     return ""
 
