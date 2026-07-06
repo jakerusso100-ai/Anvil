@@ -9,6 +9,7 @@ through the paid-review + auto-fix loop, exactly like Anvil does with the toggle
 """
 from __future__ import annotations
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -16,6 +17,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "backend"))
 import agent  # noqa: E402
 import copilot  # noqa: E402
+import tools  # noqa: E402
+
+# Connect an Obsidian vault so the models can vault_search it for reference/correction.
+_VAULT = os.environ.get("ANVIL_VAULT")
+if _VAULT:
+    tools.VAULT_PATH = _VAULT
+    print(f"[vault] connected — models can vault_search: {_VAULT}")
 
 STRESS_TASKS = {
     "3d_game": (
@@ -63,6 +71,26 @@ STRESS_TASKS = {
         "folders it needs, write the java code, the mod metadata, everything from scratch. "
         "i'm not a coder so do the whole project setup yourself and make sure it builds "
         "with no errors. check it yourself before saying it's finished."
+    ),
+    "walking_sim": (
+        "make me a fully finished 3d first person walking simulator game in python. i want "
+        "to walk around inside a 3d world in first person — move with WASD and look around "
+        "with the mouse. it needs real physics so i can't walk through walls and there's "
+        "gravity so i stay on the ground. put some NPCs (people or creatures) in the world "
+        "that wander around on their own so it feels alive. make the world feel like a real "
+        "3d space to explore with some objects in it. make it actually run and be fully "
+        "playable, and test it yourself HEADLESSLY (a --selftest that steps a few frames and "
+        "exits) to make sure it works before telling me it's done."
+    ),
+    "walking_sim2": (
+        "make me a fully finished 3d first person walking simulator game in python. i want "
+        "to walk around inside a 3d world in first person — move with WASD and look around "
+        "with the mouse. it needs real physics so i can't walk through walls and there's "
+        "gravity so i stay on the ground. put some NPCs (people or creatures) in the world "
+        "that wander around on their own so it feels alive. make the world feel like a real "
+        "3d space to explore with some objects in it. make it actually run and be fully "
+        "playable, and test it yourself HEADLESSLY (a --selftest that steps a few frames and "
+        "exits) to make sure it works before telling me it's done."
     ),
     "todo_app": (
         "build me a little to-do list app with a window where i can type a task, hit add, "
