@@ -438,12 +438,52 @@ def _dispatch_agent(model: str, messages: list[dict], workspace: str, run_id: st
     return run_agent_ollama(model, messages, workspace, run_id, approve, depth, system_base)
 
 
+def _image_to_spec(image_b64: str, vision_model: str = "qwen2.5vl:7b") -> str:
+    """Coders can't see, so turn an attached image into a detailed implementation spec
+    using the local vision model. Enables 'build the UI in this screenshot' in Agent mode."""
+    prompt = ("Describe this image in precise detail so a developer can reproduce it in "
+              "code without seeing it. If it's a UI/mockup: the layout, every component, "
+              "all visible text/labels, colors, and the likely behavior. If it's a diagram: "
+              "the structure and relationships. If it's a screenshot with text/code/errors: "
+              "transcribe the relevant text exactly. Be thorough and specific.")
+    msgs = [{"role": "user", "content": prompt, "images": [image_b64]}]
+    out = ""
+    try:
+        for ev in llm.stream_chat(vision_model, msgs):
+            if ev.get("type") == "delta":
+                out += ev["text"]
+    except Exception as e:
+        return f"(the vision model could not read the image: {type(e).__name__}: {e})"
+    return out.strip()
+
+
+def _inject_image_spec(messages: list[dict], image_b64: str | None) -> list[dict]:
+    """Prepend a vision-derived spec of the attached image to the user's request so the
+    (blind) coder can build from it."""
+    if not image_b64:
+        return messages
+    spec = _image_to_spec(image_b64)
+    note = ("The user attached an image. A vision model read it — build from this "
+            f"description:\n<image_description>\n{spec}\n</image_description>\n\n")
+    out = [dict(m) for m in messages]
+    for i in range(len(out) - 1, -1, -1):   # prepend to the LAST user message
+        if out[i].get("role") == "user":
+            out[i]["content"] = note + str(out[i].get("content", ""))
+            break
+    else:
+        out.insert(0, {"role": "user", "content": note})
+    return out
+
+
 def run_agent(model: str, messages: list[dict], workspace: str,
               approve: Callable[[str, dict], bool] = lambda n, a: True,
-              system_base: str | None = None) -> Iterator[dict]:
+              system_base: str | None = None, image_b64: str | None = None) -> Iterator[dict]:
     run_id = time.strftime("%Y%m%d-%H%M%S")
     yield {"type": "run_started", "run_id": run_id}
     _ACTIVE_MODEL["name"] = model
+    if image_b64:   # build-from-screenshot: vision model -> spec -> the (blind) coder
+        yield {"type": "stage", "stage": "reading image", "model": "qwen2.5vl:7b", "round": 0}
+        messages = _inject_image_spec(messages, image_b64)
     gen = _dispatch_agent(model, messages, workspace, run_id, approve, depth=0, system_base=system_base)
     total_cost = 0.0
     try:
@@ -580,7 +620,8 @@ def _review_input(workspace: str, written: set[str], files_text: str, test_note:
 def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
                        approve: Callable[[str, dict], bool] = lambda n, a: True,
                        *, review: bool = True, reviewer: str = "claude-haiku-4-5",
-                       auto_revise: bool = True, max_rounds: int = 2) -> Iterator[dict]:
+                       auto_revise: bool = True, max_rounds: int = 2,
+                       image_b64: str | None = None) -> Iterator[dict]:
     """Local agent build + a gated frontier review of the finished build.
 
     The local model builds with tools; when it's done a paid reviewer inspects the
@@ -589,6 +630,8 @@ def run_agent_reviewed(model: str, messages: list[dict], workspace: str,
     Degrades to a plain agent run when review is off or no API reviewer is configured.
     """
     reviewing = bool(review and reviewer in llm.API_MODELS)
+    if image_b64:   # build-from-screenshot: describe once, then the coder builds from it
+        messages = _inject_image_spec(messages, image_b64)
     conv = list(messages)
     user_request = next((m["content"] for m in messages if m.get("role") == "user"), "")
     total_cost = 0.0
@@ -724,7 +767,8 @@ def run_agent_squad(model: str, messages: list[dict], workspace: str,
                     approve: Callable[[str, dict], bool] = lambda n, a: True, *,
                     checker_model: str | None = None, lenses: list | None = None,
                     review: bool = False, reviewer: str = "claude-haiku-4-5",
-                    escalate_to: str | None = None) -> Iterator[dict]:
+                    escalate_to: str | None = None,
+                    image_b64: str | None = None) -> Iterator[dict]:
     """Main model builds; then a squad of quality-check sub-agents inspect the code and
     directly FIX what they find (each with a focused lens), re-testing as they go —
     exactly 'main model writes, sub-agents look through and fill in / fix'. The checker
@@ -735,6 +779,8 @@ def run_agent_squad(model: str, messages: list[dict], workspace: str,
     automated."""
     checker = checker_model or model
     lenses = DEFAULT_LENSES if lenses is None else lenses
+    if image_b64:   # build-from-screenshot: vision spec -> the coder + all fixers
+        messages = _inject_image_spec(messages, image_b64)
     user_request = next((m["content"] for m in messages if m.get("role") == "user"), "")
     st = {"run_id": None, "cost": 0.0, "written": set(), "last_test": None}
 

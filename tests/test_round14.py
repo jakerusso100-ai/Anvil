@@ -121,7 +121,7 @@ def test_dispatch_review_and_prompt_and_chat():
 def test_vision_attach_routes_to_vlm():
     def body():
         w = main.Main()
-        w.set_mode("Agent")   # an attached image overrides the mode -> vision chat
+        w.set_mode("Chat")   # image in Chat/Prompt mode -> vision Q&A (Agent mode -> build)
         w.attached_image_b64 = "ZmFrZS1iNjQ="   # fake base64
         w.attached_image_name = "shot.png"
         rec, restore = _capture_worker()
@@ -140,9 +140,29 @@ def test_vision_attach_routes_to_vlm():
     check("gui: attaching an image routes the turn to the vision model", body)
 
 
+def test_agent_mode_vision_builds_from_image():
+    def body():
+        w = main.Main()
+        w.set_mode("Agent")
+        w.settings.update({"squad": False, "review_agent": False})  # plain agent build
+        w.attached_image_b64 = "aW1nZGF0YQ=="
+        w.attached_image_name = "mockup.png"
+        rec, restore = _capture_worker()
+        try:
+            w.input.setPlainText("build the UI in this mockup"); w.send()
+        finally:
+            restore()
+        expect(rec.get("mode") == "agent", "image + Agent mode -> agent BUILD, not chat Q&A")
+        expect(rec.get("kwargs", {}).get("image_b64") == "aW1nZGF0YQ==",
+               "the image is passed to the build (vision->spec->coder)")
+        expect(w.attached_image_b64 is None, "attachment cleared after send")
+    check("gui: image + Agent mode -> build from screenshot", body)
+
+
 if __name__ == "__main__":
     print("== construct + controls =="); test_gui_constructs_with_new_controls()
     print("== vision attach =="); test_vision_attach_routes_to_vlm()
+    print("== agent-mode vision =="); test_agent_mode_vision_builds_from_image()
     print("== squad + escalation dispatch =="); test_dispatch_squad_with_escalation()
     print("== review/prompt/chat dispatch =="); test_dispatch_review_and_prompt_and_chat()
     import test_anvil

@@ -1045,7 +1045,7 @@ class Main(QMainWindow):
 
         s = self.settings
         perm = self.perm.currentText()
-        if self.attached_image_b64:   # vision turn: route to the local VLM with the image
+        if self.attached_image_b64 and self.mode != "Agent":   # chat Q&A about the image
             vmodel = copilot.ROSTER.get("vision", model)
             msgs = list(self.history)
             msgs[-1] = {**msgs[-1], "images": [self.attached_image_b64]}
@@ -1063,6 +1063,11 @@ class Main(QMainWindow):
                                  expanded, self.workspace)
         elif self.mode == "Agent":
             kwargs = {"model": model, "messages": list(self.history), "workspace": self.workspace}
+            if self.attached_image_b64:   # build FROM the screenshot (vision -> spec -> coder)
+                kwargs["image_b64"] = self.attached_image_b64
+                self.add_bubble("📎 image", "cardRoute").set_text(
+                    f"{self.attached_image_name} → building from the screenshot")
+                self._clear_attachment()
             if s["squad"]:  # main model builds, then checker sub-agents inspect + fix
                 kwargs.update(checker_model=(s["checker"] or model),
                               review=s["review_agent"], reviewer=s["reviewer"])
