@@ -95,8 +95,32 @@ def test_safety_guardrail():
     check("safety: blocks catastrophic commands, allows normal cleanup", body)
 
 
+def test_jdk_injected_onto_agent_path():
+    """A portable JDK sets JAVA_HOME/PATH at Windows User scope, which never propagates
+    into an already-running process — so the agent shell would fail Java builds with
+    'javac: command not found'. tools._inject_toolchains must put it on PATH so a build
+    the model writes can actually compile + run. (The limits audit installed the JDK but
+    never proved the agent could reach it — this closes that loop.)"""
+    def body():
+        # unit: injection adds JAVA_HOME + bin to an env whose PATH lacks javac
+        if tools._JDK:
+            env = {"PATH": "/nonexistent"}
+            tools._inject_toolchains(env)
+            expect(env.get("JAVA_HOME") == tools._JDK, "JAVA_HOME set to the resolved JDK")
+            expect(tools._JDK and "jdk" in env["PATH"].lower(), "JDK bin prepended to PATH")
+        # integration: the real agent shell can now find javac
+        if not tools._JDK:
+            return  # no JDK on this box — nothing to prove end-to-end
+        ws = Path(tempfile.mkdtemp())
+        out = tools._run_bash("javac -version", ws, 30)
+        expect("[exit 0]" in out and "javac" in out.lower(),
+               f"javac reachable via the agent shell after injection: {out!r}")
+    check("toolchain: a portable JDK is injected onto the agent shell PATH", body)
+
+
 if __name__ == "__main__":
     print("== safety guardrail =="); test_safety_guardrail()
+    print("== jdk injection =="); test_jdk_injected_onto_agent_path()
     print("== visual check =="); test_visual_check_tool()
     print("== posix shell =="); test_posix_shell_used_when_available()
     print("== heredoc =="); test_heredoc_works()

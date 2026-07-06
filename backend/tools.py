@@ -375,13 +375,42 @@ def _run_bash(command: str, root: Path, timeout: int) -> str:
     return _run_bash_impl(command, root, timeout)
 
 
+def _find_jdk() -> str | None:
+    """Locate a JDK that is installed but may not be on PATH. A portable/manual JDK sets
+    its JAVA_HOME/PATH at Windows *User* scope, which does NOT propagate into an already-
+    running process tree — so the agent shell would hit 'javac: command not found' even
+    though the JDK is right there. Check JAVA_HOME, then a portable install under ~/tools."""
+    exe = "javac.exe" if sys.platform == "win32" else "javac"
+    jh = os.environ.get("JAVA_HOME")
+    if jh and (Path(jh) / "bin" / exe).exists():
+        return jh
+    for c in sorted(Path.home().glob("tools/jdk-*"), reverse=True):  # newest first
+        if (c / "bin" / exe).exists():
+            return str(c)
+    return None
+
+
+_JDK = _find_jdk()  # resolved once at import
+
+
+def _inject_toolchains(env: dict) -> None:
+    """Make user-installed toolchains that live outside this process's PATH reachable by
+    the agent shell. Today: a JDK whose User-scope env never propagated (see _find_jdk).
+    Only injects when the tool isn't already reachable, so a real system install wins."""
+    if _JDK and not shutil.which("javac", path=env.get("PATH")):
+        env["JAVA_HOME"] = _JDK
+        env["PATH"] = str(Path(_JDK) / "bin") + os.pathsep + env.get("PATH", "")
+
+
 def _run_bash_impl(command: str, root: Path, timeout: int) -> str:
     """Run a shell command with guards learned from live testing:
       1. Use a real POSIX shell (git-bash) on Windows so bash-style commands work,
          instead of cmd.exe silently choking on heredocs and POSIX syntax.
       2. Force GUI toolkits headless (SDL/Qt offscreen) so a windowed program
          renders without opening a blocking window.
-      3. Hard-kill the whole process tree on timeout — plain subprocess timeout
+      3. Put user-installed toolchains (a portable JDK) on PATH so Java builds work
+         even though their User-scope env vars never reached this process.
+      4. Hard-kill the whole process tree on timeout — plain subprocess timeout
          on Windows kills the shell but orphans GUI children (and their windows).
     """
     env = dict(os.environ)
@@ -389,6 +418,7 @@ def _run_bash_impl(command: str, root: Path, timeout: int) -> str:
     env.setdefault("SDL_AUDIODRIVER", "dummy")
     env.setdefault("QT_QPA_PLATFORM", "offscreen")  # Qt: no window
     env["PYTHONUNBUFFERED"] = "1"
+    _inject_toolchains(env)                          # portable JDK -> PATH (Java builds)
     flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)  # Windows only
     bash = _posix_shell()
     args = [bash, "-c", command] if bash else command
