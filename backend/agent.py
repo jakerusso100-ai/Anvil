@@ -32,8 +32,14 @@ AGENT_SYSTEM = (
     "(e.g. a --selftest or --frames N flag that runs a fixed number of frames and exits "
     "with code 0), and run THAT. Your shell already forces GUI toolkits headless. "
     "For a GRAPHICAL program, also save one rendered frame to a PNG in the self-test "
-    "(e.g. pygame.image.save(screen, 'frame.png')) and call visual_check on it — a headless "
-    "run proves it runs; visual_check proves it actually LOOKS right (not a black screen). "
+    "(e.g. pygame.image.save(screen, 'frame.png')). Then, IN THE TEST FILE ITSELF, assert "
+    "the frame is NOT blank — load it back and check it is not a single flat colour, e.g. "
+    "`from PIL import Image; lo, hi = Image.open('frame.png').convert('L').getextrema(); "
+    "assert lo != hi, 'blank/flat render'`. Bake that assertion into the test (do NOT leave "
+    "it as a comment or a manual step) so the repeatable test catches a black/empty render "
+    "on its own. Also call visual_check on the frame for a semantic look-right check. A "
+    "headless run proves it runs; the non-blank assertion proves pixels were drawn; "
+    "visual_check proves it actually LOOKS right (real shapes, not noise). "
     "Do the work yourself, writing files step by step — do NOT hand the entire task to "
     "a single subagent; reserve subagents for narrow, well-scoped sub-parts. "
     "To run Python use `python`; only fall back to `python3` if `python` is missing "
@@ -770,7 +776,13 @@ DEFAULT_LENSES = [
      "does what the user asked (no placeholders)."),
     ("correctness",
      "find and fix correctness bugs — wrong output, broken edge cases, or rules/logic "
-     "implemented incorrectly — and prove the fix with the self-test."),
+     "implemented incorrectly — and prove the fix with the self-test. If the self-test is "
+     "superficial (only checks that a file exists, is non-empty, or that code imports), "
+     "STRENGTHEN it to assert real behaviour: for a program that renders an image, load the "
+     "output PNG back and assert it is not a single flat colour "
+     "(`lo, hi = Image.open(p).convert('L').getextrema(); assert lo != hi`); for a computed "
+     "result, assert the actual expected value — so a black/empty/degenerate output fails "
+     "the test instead of passing it."),
 ]
 
 
