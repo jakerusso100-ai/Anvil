@@ -124,8 +124,69 @@ def test_squad_optional_final_review():
     check("squad: optional final paid review after the fixers", body)
 
 
+def _passing_by_model(green_model):
+    """Fake run_agent whose self-test passes only for `green_model` (else exits 1)."""
+    calls = []
+
+    def fake(model, messages, workspace, approve=lambda n, a: True, system_base=None):
+        calls.append(model)
+        Path(workspace, "game.py").write_text("code")
+        yield {"type": "run_started", "run_id": "rid"}
+        yield {"type": "tool_call", "name": "write_file", "args": {"path": "game.py"}}
+        yield {"type": "tool_result", "name": "write_file", "output": "ok"}
+        yield {"type": "tool_call", "name": "bash", "args": {"command": "python game.py --selftest"}}
+        ok = model == green_model
+        yield {"type": "tool_result", "name": "bash",
+               "output": f"[exit {0 if ok else 1}]\n{'OK' if ok else 'FAIL: bug'}"}
+        yield {"type": "final_text", "answer": "done"}
+        yield {"type": "final", "cost": 0.001, "reviewed": False, "revised": False,
+               "passed": None, "answer": "", "run_id": "rid"}
+
+    return fake, calls
+
+
+def test_auto_escalates_when_free_path_fails():
+    def body():
+        ws = tempfile.mkdtemp()
+        # local model (build + fixers) leaves the test red; the paid model fixes it
+        fake, calls = _passing_by_model("claude-haiku-4-5")
+        real = agent.run_agent
+        agent.run_agent = fake
+        try:
+            evs = list(agent.run_agent_squad(
+                "local-coder", [{"role": "user", "content": "build"}], ws,
+                checker_model="local-coder", review=False, escalate_to="claude-haiku-4-5"))
+        finally:
+            agent.run_agent = real
+        expect("claude-haiku-4-5" in calls, "paid escalation ran because the free path stayed red")
+        expect(calls.count("claude-haiku-4-5") == 1, "escalation is a single last-mile pass")
+        expect(evs[-1]["passed"] is True, "the paid fix got the self-test green -> passed")
+        expect(any(str(e.get("stage", "")).startswith("escalate") for e in evs), "emits an escalate stage")
+    check("squad: auto-escalates to paid when the free path leaves the test red", body)
+
+
+def test_no_escalation_when_free_path_passes():
+    def body():
+        ws = tempfile.mkdtemp()
+        # local path already passes -> no paid spend
+        fake, calls = _passing_by_model("local-coder")
+        real = agent.run_agent
+        agent.run_agent = fake
+        try:
+            evs = list(agent.run_agent_squad(
+                "local-coder", [{"role": "user", "content": "build"}], ws,
+                checker_model="local-coder", review=False, escalate_to="claude-haiku-4-5"))
+        finally:
+            agent.run_agent = real
+        expect("claude-haiku-4-5" not in calls, "no paid escalation when the free path already passes")
+        expect(evs[-1]["passed"] is True, "free path passed on its own")
+    check("squad: no escalation (no paid spend) when the free path passes", body)
+
+
 if __name__ == "__main__":
     print("== build + fixers =="); test_build_then_fixer_squad()
+    print("== auto-escalate =="); test_auto_escalates_when_free_path_fails()
+    print("== no needless escalation =="); test_no_escalation_when_free_path_passes()
     print("== verdict follows selftest =="); test_squad_verdict_follows_last_selftest()
     print("== empty skips squad =="); test_empty_build_skips_squad()
     print("== optional review =="); test_squad_optional_final_review()

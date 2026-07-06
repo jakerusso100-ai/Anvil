@@ -106,6 +106,7 @@ def main():
     model_arg = sys.argv[2] if len(sys.argv) > 2 else "auto"
     reviewer = sys.argv[3] if len(sys.argv) > 3 else "none"
     checker = sys.argv[4] if len(sys.argv) > 4 else "none"  # 4th arg -> quality squad
+    escalate = sys.argv[5] if len(sys.argv) > 5 else "none"  # 5th arg -> paid last-mile fix
     prompt = STRESS_TASKS[task_id]
     ws = Path(__file__).parent / "examples" / f"stress_{task_id}"
     ws.mkdir(parents=True, exist_ok=True)
@@ -128,7 +129,8 @@ def main():
     if checker != "none":
         stream = agent.run_agent_squad(
             model, msg, str(ws), approve=lambda n, a: True,
-            checker_model=checker, review=(reviewer != "none"), reviewer=reviewer)
+            checker_model=checker, review=(reviewer != "none"), reviewer=reviewer,
+            escalate_to=(escalate if escalate != "none" else None))
     elif reviewer != "none":
         stream = agent.run_agent_reviewed(
             model, msg, str(ws), approve=lambda n, a: True,
@@ -152,7 +154,8 @@ def main():
                 errors += 1
             print(f"        -> {out}", flush=True)
         elif t == "stage" and (ev.get("stage") == "building"
-                               or str(ev.get("stage", "")).startswith("quality-check")):
+                               or str(ev.get("stage", "")).startswith("quality-check")
+                               or str(ev.get("stage", "")).startswith("escalate")):
             print(f"\n[SQUAD] === {ev['stage']} ({ev['model']}) ===", flush=True)
         elif t == "stage" and ev.get("stage") == "reviewing":
             print(f"[REVIEW] {ev['model']} inspecting the build (round {ev['round']})...", flush=True)

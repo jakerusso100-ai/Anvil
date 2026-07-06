@@ -694,12 +694,16 @@ DEFAULT_LENSES = [
 def run_agent_squad(model: str, messages: list[dict], workspace: str,
                     approve: Callable[[str, dict], bool] = lambda n, a: True, *,
                     checker_model: str | None = None, lenses: list | None = None,
-                    review: bool = False, reviewer: str = "claude-haiku-4-5") -> Iterator[dict]:
+                    review: bool = False, reviewer: str = "claude-haiku-4-5",
+                    escalate_to: str | None = None) -> Iterator[dict]:
     """Main model builds; then a squad of quality-check sub-agents inspect the code and
     directly FIX what they find (each with a focused lens), re-testing as they go —
     exactly 'main model writes, sub-agents look through and fill in / fix'. The checker
     can be the same local model (free extra passes with fresh context) or a stronger/paid
-    one. An optional final paid review gives a verdict. Fully automated."""
+    one. If the free path still can't get the self-test green and `escalate_to` names a
+    paid model, ONE last-mile fix pass runs with it (only then, only when failing) — free
+    until it can't, then cents. An optional final paid review gives a verdict. Fully
+    automated."""
     checker = checker_model or model
     lenses = DEFAULT_LENSES if lenses is None else lenses
     user_request = next((m["content"] for m in messages if m.get("role") == "user"), "")
@@ -747,6 +751,23 @@ def run_agent_squad(model: str, messages: list[dict], workspace: str,
                       "Make targeted edits (do not rewrite from scratch), then run the "
                       "headless self-test to confirm it passes."}]
         yield from drive(checker, fixer_msg, FIXER_SYSTEM)
+
+    # 2b) AUTO-ESCALATION — the free/local squad couldn't get the self-test green, so pay
+    # for JUST the last-mile fix with a stronger model. Only fires when it's actually
+    # failing, so you stay free until the local path genuinely can't finish.
+    lt = st["last_test"]
+    if (lt is not None and lt[0] not in (0, None) and escalate_to
+            and escalate_to in llm.API_MODELS and escalate_to != checker and st["written"]):
+        yield {"type": "stage", "stage": f"escalate: paid fix ({escalate_to})",
+               "model": escalate_to, "round": 0}
+        esc_msg = [{"role": "user", "content":
+                    "Another model built a project in this workspace for this request:\n\n"
+                    f"<request>\n{user_request}\n</request>\n\n"
+                    "Its headless self-test is still FAILING with:\n"
+                    f"{lt[1][:800]}\n\n"
+                    "Diagnose and fix ALL the bugs with targeted edits (do not rewrite from "
+                    "scratch), then re-run the self-test until it exits 0."}]
+        yield from drive(escalate_to, esc_msg, FIXER_SYSTEM)
 
     # 3) verdict from the final self-test, plus an optional paid review
     lt = st["last_test"]

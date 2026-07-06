@@ -1027,6 +1027,8 @@ class Main(QMainWindow):
             if s["squad"]:  # main model builds, then checker sub-agents inspect + fix
                 kwargs.update(checker_model=(s["checker"] or model),
                               review=s["review_agent"], reviewer=s["reviewer"])
+                if s["allow_api"]:   # auto-escalate the last-mile fix to a paid model
+                    kwargs["escalate_to"] = s["reviewer"]
             elif s["review_agent"]:  # local model builds, then a paid reviewer checks it
                 kwargs.update(review=True, reviewer=s["reviewer"],
                               auto_revise=s["auto_fix"], max_rounds=s["rounds"])
