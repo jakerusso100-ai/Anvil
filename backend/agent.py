@@ -82,6 +82,12 @@ def extract_build_prompt(text: str) -> str | None:
     return body.strip() or None
 
 
+def _vault_query(messages: list[dict]) -> str:
+    """The text to search the vault with — the user's request(s) in this turn."""
+    return " ".join(m.get("content", "") for m in messages
+                    if m.get("role") == "user" and isinstance(m.get("content"), str))[:2000]
+
+
 def _vault_note() -> str:
     if tools.VAULT_PATH:
         return ("\n\nAn Obsidian knowledge vault is connected. BEFORE you web_search or "
@@ -259,7 +265,8 @@ def _ollama_step(model: str, messages: list[dict]) -> dict:
 
 def run_agent_ollama(model: str, messages: list[dict], workspace: str, run_id: str,
                      approve: Callable, depth: int = 0, system_base: str | None = None) -> Iterator[dict]:
-    system = (system_base or AGENT_SYSTEM) + _vault_note() + _project_instructions(workspace)
+    system = ((system_base or AGENT_SYSTEM) + _vault_note()
+              + tools.vault_lookup(_vault_query(messages)) + _project_instructions(workspace))
     msgs = [{"role": "system", "content": system}] + messages
     for step in range(MAX_STEPS):
         yield {"type": "stage", "stage": "thinking", "model": model, "step": step + 1}
@@ -294,7 +301,8 @@ def run_agent_anthropic(model: str, messages: list[dict], workspace: str, run_id
     import anthropic
 
     client = anthropic.Anthropic()
-    system = (system_base or AGENT_SYSTEM) + _vault_note() + _project_instructions(workspace)
+    system = ((system_base or AGENT_SYSTEM) + _vault_note()
+              + tools.vault_lookup(_vault_query(messages)) + _project_instructions(workspace))
     msgs = [dict(m) for m in messages]
     total_cost = 0.0
     kwargs = {"model": model, "max_tokens": 8000, "system": system,
@@ -344,7 +352,8 @@ def _openai_tools() -> list[dict]:
 def run_agent_openai(base_url: str, real_model: str, api_key: str | None,
                      prices: tuple, messages: list[dict], workspace: str, run_id: str,
                      approve: Callable, depth: int = 0, system_base: str | None = None) -> Iterator[dict]:
-    system = (system_base or AGENT_SYSTEM) + _vault_note() + _project_instructions(workspace)
+    system = ((system_base or AGENT_SYSTEM) + _vault_note()
+              + tools.vault_lookup(_vault_query(messages)) + _project_instructions(workspace))
     msgs = [{"role": "system", "content": system}] + [dict(m) for m in messages]
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     total_cost = 0.0

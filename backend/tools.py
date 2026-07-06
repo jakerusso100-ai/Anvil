@@ -107,6 +107,54 @@ VAULT_SPECS = [
 VAULT_PATH: str | None = None
 
 
+_LAST_VAULT_LOOKUP: list[str] = []   # note names injected by the most recent vault_lookup
+_VAULT_STOP = {"and", "the", "for", "with", "you", "are", "that", "this", "have", "make",
+               "want", "from", "into", "your", "get", "its", "can", "will", "would",
+               "just", "like", "some", "any", "them", "there", "when", "what", "how"}
+
+
+def vault_lookup(query: str, k: int = 2, cap: int = 6000) -> str:
+    """Proactive RAG: return the full text of the top-k vault notes matching `query`
+    (capped), or '' if none clearly match. Injected into the agent's system prompt so the
+    model has the reference in context WITHOUT having to remember to vault_search — models
+    default to web tools and skip the vault otherwise."""
+    _LAST_VAULT_LOOKUP.clear()
+    if not VAULT_PATH:
+        return ""
+    # drop stopwords so a note doesn't "match" just by containing 'and'/'with'/etc.
+    terms = [t for t in query.lower().split() if len(t) > 2 and t not in _VAULT_STOP]
+    if not terms:
+        return ""
+    scored = []
+    for md in Path(VAULT_PATH).rglob("*.md"):
+        if ".obsidian" in md.parts or ".trash" in md.parts:
+            continue
+        try:
+            body = md.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        hay = (md.stem + "\n" + body).lower()
+        score = sum(hay.count(t) for t in terms)
+        if score:
+            scored.append((score, md.stem, body))
+    scored.sort(reverse=True)
+    if not scored or scored[0][0] < 4:      # nothing clearly relevant — inject nothing
+        return ""
+    out, total = [], 0
+    for score, stem, body in scored[:k]:
+        if score < 3 or total >= cap:       # per-note floor: skip weak/incidental matches
+            break
+        chunk = body[: cap - total]
+        out.append(f"### {stem}\n{chunk}")
+        total += len(chunk)
+        _LAST_VAULT_LOOKUP.append(stem)
+    if not out:
+        return ""
+    return ("\n\nReference notes auto-retrieved from the connected knowledge vault for this "
+            "task — use these correct patterns instead of guessing or re-deriving the API:\n\n"
+            + "\n\n".join(out))
+
+
 def detect_vaults() -> list[str]:
     """Find Obsidian vaults (.obsidian markers) in common locations."""
     home = Path.home()
