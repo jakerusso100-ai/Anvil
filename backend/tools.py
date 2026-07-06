@@ -48,6 +48,17 @@ TOOL_SPECS = [
      "parameters": {"type": "object", "properties": {
          "command": {"type": "string"}, "timeout_sec": {"type": "integer", "description": "default 60"}},
          "required": ["command"]}},
+    {"name": "visual_check",
+     "description": "Look at an image in the workspace (a rendered game frame or UI screenshot) "
+                    "with a local vision model and report whether it looks correct. A headless "
+                    "self-test only proves a graphical program RUNS — this proves it LOOKS right. "
+                    "Save a frame first (pygame.image.save(screen,'frame.png') / Panda3D "
+                    "screenshot), then visual_check it.",
+     "parameters": {"type": "object", "properties": {
+         "image": {"type": "string", "description": "Relative path to the image in the workspace"},
+         "expectation": {"type": "string",
+                         "description": "What it should show, e.g. 'a 3D maze with walls and a HUD'"}},
+         "required": ["image", "expectation"]}},
     {"name": "web_search",
      "description": "Search the web. Returns titles, URLs and snippets.",
      "parameters": {"type": "object", "properties": {
@@ -250,6 +261,35 @@ def detect_vaults() -> list[str]:
     return sorted(set(found))
 
 
+def _visual_check(image_rel: str, expectation: str, root: Path) -> str:
+    """Send a workspace image (a rendered frame / screenshot) to the local vision model and
+    report whether it LOOKS right — beyond a headless self-test proving it merely runs."""
+    import base64
+    try:
+        p = _safe(root, image_rel)
+    except ValueError as e:
+        return f"ERROR: {e}"
+    if not p.is_file():
+        return f"ERROR: image not found: {image_rel} (save a frame first, e.g. pygame.image.save)"
+    try:
+        b64 = base64.b64encode(p.read_bytes()).decode()
+    except Exception as e:
+        return f"ERROR: couldn't read image: {e}"
+    prompt = (f"Does this image show a working {expectation}? Describe what you actually see. "
+              "Explicitly flag any problem: a blank/black screen, an error dialog, garbled or "
+              "overlapping graphics, or missing elements. If it looks correct, say so clearly.")
+    try:
+        import llm
+        r = requests.post(f"{llm.OLLAMA_URL}/api/chat", json={
+            "model": "qwen2.5vl:7b", "stream": False,
+            "messages": [{"role": "user", "content": prompt, "images": [b64]}],
+            "options": {"num_predict": 250, "temperature": 0}}, timeout=180)
+        r.raise_for_status()
+        return "[visual check] " + r.json()["message"]["content"].strip()
+    except Exception as e:
+        return f"[visual check unavailable: {type(e).__name__}: {e}]"
+
+
 # tools that modify state or execute code -> may require user approval
 DANGEROUS = {"write_file", "edit_file", "bash", "vault_write"}
 
@@ -411,6 +451,9 @@ def _dispatch(name: str, a: dict, root: Path) -> str:
 
     if name == "bash":
         return _run_bash(a["command"], root, int(a.get("timeout_sec", 60)))
+
+    if name == "visual_check":
+        return _visual_check(a["image"], a.get("expectation", "the described program"), root)
 
     if name == "web_search":
         from ddgs import DDGS

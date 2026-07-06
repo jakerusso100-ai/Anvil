@@ -67,7 +67,20 @@ def test_system32_wsl_launcher_skipped():
     check("bash: never selects the System32 WSL launcher", body)
 
 
+def test_visual_check_tool():
+    """Visual verification: the agent can check a rendered frame LOOKS right, not just runs."""
+    def body():
+        names = [t["name"] for t in tools._active_specs()]
+        expect("visual_check" in names, "visual_check is exposed to the agent")
+        expect(not tools.is_dangerous("visual_check"), "visual_check is read-only (no approval gate)")
+        ws = Path(tempfile.mkdtemp())
+        out = tools.run_tool("visual_check", {"image": "missing.png", "expectation": "a game"}, str(ws))
+        expect("not found" in out.lower(), f"graceful on missing image: {out!r}")
+    check("visual_check: registered, read-only, graceful on missing image", body)
+
+
 if __name__ == "__main__":
+    print("== visual check =="); test_visual_check_tool()
     print("== posix shell =="); test_posix_shell_used_when_available()
     print("== heredoc =="); test_heredoc_works()
     print("== headless env =="); test_headless_env_still_forced()
