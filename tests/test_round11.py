@@ -79,7 +79,24 @@ def test_visual_check_tool():
     check("visual_check: registered, read-only, graceful on missing image", body)
 
 
+def test_safety_guardrail():
+    """A safety net: catastrophic commands (disk/root/home wipes, machine control) are
+    refused, while normal workspace cleanup still runs."""
+    def body():
+        ws = Path(tempfile.mkdtemp())
+        for cmd in ["rm -rf /", "rm -rf ~", "rm -rf /etc", ":(){ :|:& };:",
+                    "mkfs.ext4 /dev/sda", "dd if=/dev/zero of=/dev/sda", "format C:",
+                    "shutdown -h now", "reboot"]:
+            out = tools._run_bash(cmd, ws, 5)
+            expect("BLOCKED" in out, f"should BLOCK catastrophic command: {cmd!r}")
+        for cmd in ["rm -rf build", "rm -rf node_modules", "rm -f a.tmp", "echo hi",
+                    "python --version", "npm test", "git clean -fd"]:
+            expect(tools._is_catastrophic(cmd) is None, f"should ALLOW normal command: {cmd!r}")
+    check("safety: blocks catastrophic commands, allows normal cleanup", body)
+
+
 if __name__ == "__main__":
+    print("== safety guardrail =="); test_safety_guardrail()
     print("== visual check =="); test_visual_check_tool()
     print("== posix shell =="); test_posix_shell_used_when_available()
     print("== heredoc =="); test_heredoc_works()

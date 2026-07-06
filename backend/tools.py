@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -344,7 +345,37 @@ def _posix_shell() -> str | None:
     return None
 
 
+# Catastrophic commands the agent should NEVER run — a safety net on top of permission
+# modes. Targets whole-disk / root / home wipes and machine control, NOT normal cleanup
+# (rm -rf build, rm -rf node_modules stay allowed — they're relative to the workspace).
+_CATASTROPHIC = [
+    r"rm\s+-[rfd]{1,3}\s+(/|/\*|~|~/\*|\$HOME|/etc|/usr|/bin|/sbin|/var|/lib|/boot|/root|/System)(\s|$|/|\*)",
+    r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:",           # fork bomb
+    r"\bmkfs(\.|\s)", r"\bdd\b[^|]*\bof=/dev/", r">\s*/dev/(sd|nvme|disk|hd)",
+    r"\bformat\s+[a-zA-Z]:", r"\bdel\s+/[sqf]\b[^|]*[a-zA-Z]:\\", r"\brd\s+/s\b[^|]*[a-zA-Z]:",
+    r"\b(shutdown|reboot|poweroff|halt|init\s+0)\b",
+    r"Remove-Item[^|]*-Recurse[^|]*(C:\\|\$HOME|~|/)",
+    r"\bchmod\s+-R\s+0?00\s+/",
+]
+
+
+def _is_catastrophic(command: str) -> str | None:
+    for pat in _CATASTROPHIC:
+        if re.search(pat, command, re.IGNORECASE):
+            return pat
+    return None
+
+
 def _run_bash(command: str, root: Path, timeout: int) -> str:
+    danger = _is_catastrophic(command)
+    if danger:
+        return ("[BLOCKED by Anvil safety] this command looks catastrophic (whole-disk / root / "
+                "home wipe or machine control) and was refused. Work inside the workspace; if you "
+                "genuinely need this, the user must run it themselves.")
+    return _run_bash_impl(command, root, timeout)
+
+
+def _run_bash_impl(command: str, root: Path, timeout: int) -> str:
     """Run a shell command with guards learned from live testing:
       1. Use a real POSIX shell (git-bash) on Windows so bash-style commands work,
          instead of cmd.exe silently choking on heredocs and POSIX syntax.

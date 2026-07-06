@@ -136,7 +136,7 @@ def test_vision_attach_routes_to_vlm():
         expect(kw.get("messages", [{}])[-1].get("images") == ["ZmFrZS1iNjQ="],
                "the image is attached to the last user message")
         expect(kw.get("review") is False, "no code-review pass on a vision turn")
-        expect(w.attached_image_b64 is None, "attachment cleared after send")
+        expect(w.attached_image_b64 == "ZmFrZS1iNjQ=", "image stays pinned after a chat turn (multi-turn)")
     check("gui: attaching an image routes the turn to the vision model", body)
 
 
@@ -159,10 +159,32 @@ def test_agent_mode_vision_builds_from_image():
     check("gui: image + Agent mode -> build from screenshot", body)
 
 
+def test_multiturn_image_pinning():
+    def body():
+        w = main.Main()
+        w.set_mode("Chat")
+        w.attached_image_b64 = "aW1n"; w.attached_image_name = "x.png"
+        rec, restore = _capture_worker()
+        try:
+            w.input.setPlainText("what is this?"); w.send()
+        finally:
+            restore()
+        expect(w.attached_image_b64 == "aW1n", "chat vision keeps the image pinned (multi-turn)")
+        w.set_mode("Agent"); w.settings.update({"squad": False, "review_agent": False})
+        rec2, restore2 = _capture_worker()
+        try:
+            w.input.setPlainText("build it"); w.send()
+        finally:
+            restore2()
+        expect(w.attached_image_b64 is None, "an agent build consumes the image (one-shot)")
+    check("gui: image pinned across chat turns, consumed by an agent build", body)
+
+
 if __name__ == "__main__":
     print("== construct + controls =="); test_gui_constructs_with_new_controls()
     print("== vision attach =="); test_vision_attach_routes_to_vlm()
     print("== agent-mode vision =="); test_agent_mode_vision_builds_from_image()
+    print("== multi-turn image =="); test_multiturn_image_pinning()
     print("== squad + escalation dispatch =="); test_dispatch_squad_with_escalation()
     print("== review/prompt/chat dispatch =="); test_dispatch_review_and_prompt_and_chat()
     import test_anvil

@@ -293,7 +293,10 @@ class TerminalPane(QWidget):
         self.proc.readyReadStandardOutput.connect(
             lambda: self._append(bytes(self.proc.readAllStandardOutput()).decode("utf-8", "replace")))
         self.proc.finished.connect(lambda code, _: self._append(f"[exit {code}]"))
-        self.proc.start("cmd.exe", ["/c", cmd])
+        if sys.platform == "win32":
+            self.proc.start("cmd.exe", ["/c", cmd])
+        else:   # Linux / macOS
+            self.proc.start("/bin/sh", ["-c", cmd])
 
 
 class Composer(QPlainTextEdit):
@@ -912,7 +915,13 @@ class Main(QMainWindow):
         self.btn_prompt.setChecked(mode == "Prompt")
 
     def attach_image(self):
-        """Attach an image to the next message; that turn routes to the vision model."""
+        """Pin an image to the conversation (routes turns to the vision model). Click again
+        to detach. It stays pinned across follow-up turns in Chat/Prompt (multi-turn image
+        memory); Agent-mode builds consume it once."""
+        if self.attached_image_b64:   # already pinned -> toggle off
+            self._clear_attachment()
+            self.status.setText("image detached")
+            return
         import base64
         from PySide6.QtWidgets import QFileDialog
         f, _ = QFileDialog.getOpenFileName(
@@ -1055,8 +1064,9 @@ class Main(QMainWindow):
             self.worker = Worker("chat", kwargs, "Bypass", s["router"], s["allow_api"],
                                  expanded, self.workspace)
             self.add_bubble("📎 image", "cardRoute").set_text(
-                f"{self.attached_image_name} → vision model <b>{vmodel}</b>", rich=True)
-            self._clear_attachment()
+                f"{self.attached_image_name} → vision model <b>{vmodel}</b> "
+                "<i>(pinned — click 📎 to detach)</i>", rich=True)
+            # keep the image pinned so follow-up turns still see it (multi-turn image memory)
         elif self.mode == "Prompt":
             kwargs = {"model": model, "messages": list(self.history), "workspace": self.workspace}
             self.worker = Worker("prompt", kwargs, perm, s["router"], s["allow_api"],
