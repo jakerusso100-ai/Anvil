@@ -19,6 +19,7 @@ Legend: ✅ done · 🔨 this build · 🗓 planned · ➖ not applicable locall
 | **Quality-check squad** | ✅ | Anvil original — the main model builds, then checker sub-agents (local or paid) inspect the code and directly fix/fill-in what they find, each with a focused lens (runnability, correctness), re-testing as they go |
 | **Auto-escalation** | ✅ | if the free local squad still can't get the self-test green, Anvil auto-hands just the last-mile fix to a paid model — free until it genuinely can't finish, then cents |
 | **Bundled coding playbook + RAG** | ✅ | 28 correct-pattern notes ship with Anvil and are auto-injected (semantic, nomic-embed) into every build, so local models get expertise on tap with zero setup |
+| **Vision / image input** | ✅ | 📎 attach a screenshot, UI mockup, diagram, or error image — the turn routes to a local vision model (`qwen2.5vl:7b`, bake-off winner) that reads it. Screenshot→spec, code OCR, debug-from-error-image |
 | **Prompt Maker** mode | ✅ | Anvil original — a 3rd mode that interviews you (2D/3D? solo/multiplayer? …) with research-only tools and drafts a polished build prompt, with one-click handoff to the builder |
 | Cost/usage tracking | ✅ | per-session cost meter |
 | Model routing (local+API) | ✅ | Ollama + LM Studio + Anthropic in one picker |

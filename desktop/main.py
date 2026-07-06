@@ -580,6 +580,8 @@ class Main(QMainWindow):
         self.last_run_id: str | None = None
         self.worker: Worker | None = None
         self.workspace = str(Path.home())
+        self.attached_image_b64: str | None = None   # image for the next turn (vision)
+        self.attached_image_name: str | None = None
         import tools as _tools
         vaults = _tools.detect_vaults()
         self.settings = {"reviewer": "claude-haiku-4-5", "review": True,
@@ -676,6 +678,10 @@ class Main(QMainWindow):
         self.input.setPlaceholderText("Ask anything… @file for context, / for commands. Enter sends, Shift+Enter = newline")
         self.input.setFixedHeight(80); self.input.submit.connect(self.send_or_stop)
         row.addWidget(self.input, 1)
+        self.attach_btn = QPushButton("📎"); self.attach_btn.setFixedWidth(40)
+        self.attach_btn.setToolTip("Attach an image (screenshot / UI mockup / diagram / error) "
+                                   "— this turn is routed to the local vision model")
+        self.attach_btn.clicked.connect(self.attach_image); row.addWidget(self.attach_btn)
         self.send_btn = QPushButton("➤"); self.send_btn.setFixedWidth(54)
         self.send_btn.clicked.connect(self.send_or_stop); row.addWidget(self.send_btn)
         cv.addLayout(row)
@@ -905,6 +911,27 @@ class Main(QMainWindow):
         self.btn_chat.setChecked(mode == "Chat")
         self.btn_prompt.setChecked(mode == "Prompt")
 
+    def attach_image(self):
+        """Attach an image to the next message; that turn routes to the vision model."""
+        import base64
+        from PySide6.QtWidgets import QFileDialog
+        f, _ = QFileDialog.getOpenFileName(
+            self, "Attach an image", "", "Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)")
+        if not f:
+            return
+        try:
+            self.attached_image_b64 = base64.b64encode(Path(f).read_bytes()).decode()
+            self.attached_image_name = Path(f).name
+            self.attach_btn.setText("📎✓")
+            self.status.setText(f"image attached: {self.attached_image_name} — next message uses "
+                                f"the vision model ({copilot.ROSTER.get('vision', '?')})")
+        except Exception as e:
+            self.status.setText(f"couldn't attach image: {e}")
+
+    def _clear_attachment(self):
+        self.attached_image_b64 = self.attached_image_name = None
+        self.attach_btn.setText("📎")
+
     def open_settings(self):
         dlg = SettingsDialog(self, self.settings)
         if dlg.exec():
@@ -1018,7 +1045,19 @@ class Main(QMainWindow):
 
         s = self.settings
         perm = self.perm.currentText()
-        if self.mode == "Prompt":
+        if self.attached_image_b64:   # vision turn: route to the local VLM with the image
+            vmodel = copilot.ROSTER.get("vision", model)
+            msgs = list(self.history)
+            msgs[-1] = {**msgs[-1], "images": [self.attached_image_b64]}
+            self.last_model = vmodel
+            kwargs = {"model": vmodel, "messages": msgs, "review": False,
+                      "reviewer": s["reviewer"], "auto_revise": False, "max_rounds": 1}
+            self.worker = Worker("chat", kwargs, "Bypass", s["router"], s["allow_api"],
+                                 expanded, self.workspace)
+            self.add_bubble("📎 image", "cardRoute").set_text(
+                f"{self.attached_image_name} → vision model <b>{vmodel}</b>", rich=True)
+            self._clear_attachment()
+        elif self.mode == "Prompt":
             kwargs = {"model": model, "messages": list(self.history), "workspace": self.workspace}
             self.worker = Worker("prompt", kwargs, perm, s["router"], s["allow_api"],
                                  expanded, self.workspace)

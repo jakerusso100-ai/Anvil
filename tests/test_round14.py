@@ -118,8 +118,31 @@ def test_dispatch_review_and_prompt_and_chat():
     check("gui: review / Prompt / Chat all dispatch correctly", body)
 
 
+def test_vision_attach_routes_to_vlm():
+    def body():
+        w = main.Main()
+        w.set_mode("Agent")   # an attached image overrides the mode -> vision chat
+        w.attached_image_b64 = "ZmFrZS1iNjQ="   # fake base64
+        w.attached_image_name = "shot.png"
+        rec, restore = _capture_worker()
+        try:
+            w.input.setPlainText("what's in this screenshot?")
+            w.send()
+        finally:
+            restore()
+        expect(rec.get("mode") == "chat", "vision turn dispatches a chat worker")
+        kw = rec.get("kwargs", {})
+        expect(kw.get("model") == copilot.ROSTER["vision"], "routes to the vision model")
+        expect(kw.get("messages", [{}])[-1].get("images") == ["ZmFrZS1iNjQ="],
+               "the image is attached to the last user message")
+        expect(kw.get("review") is False, "no code-review pass on a vision turn")
+        expect(w.attached_image_b64 is None, "attachment cleared after send")
+    check("gui: attaching an image routes the turn to the vision model", body)
+
+
 if __name__ == "__main__":
     print("== construct + controls =="); test_gui_constructs_with_new_controls()
+    print("== vision attach =="); test_vision_attach_routes_to_vlm()
     print("== squad + escalation dispatch =="); test_dispatch_squad_with_escalation()
     print("== review/prompt/chat dispatch =="); test_dispatch_review_and_prompt_and_chat()
     import test_anvil
