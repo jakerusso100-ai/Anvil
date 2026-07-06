@@ -263,7 +263,13 @@ def _manage_context(msgs: list[dict], keep_recent: int = 6) -> None:
 def _ollama_step(model: str, messages: list[dict]) -> dict:
     """One tool-calling turn against Ollama, hardened against transient instability:
     a bounded per-step timeout (so a hung server can't wedge the agent for 20 minutes)
-    and a single retry on a transient failure (5xx / timeout / dropped connection)."""
+    and a single retry on a transient CONNECTION failure (5xx / dropped or refused socket).
+
+    A read-timeout is deliberately NOT retried: it means the generation itself is too slow
+    for this model, so an immediate retry just burns another full timeout for the identical
+    result — a too-hard task timed out twice for ~14 min of dead time before this. Fail fast
+    instead and let the quality squad / paid escalation take over. (Cold model-load into
+    VRAM is ~seconds and never approaches the step timeout, so nothing legitimate is lost.)"""
     last_err: Exception | None = None
     for attempt in range(2):
         try:
@@ -280,8 +286,10 @@ def _ollama_step(model: str, messages: list[dict]) -> dict:
             last_err = e
             if e.response is None or e.response.status_code < 500:
                 raise  # a 4xx is a real request problem; retrying won't help
-        except (requests.Timeout, requests.ConnectionError) as e:
-            last_err = e  # transient: hang or dropped connection — retry once
+        except requests.Timeout:
+            raise  # generation too slow — an immediate retry just times out again
+        except requests.ConnectionError as e:
+            last_err = e  # dropped/refused socket — genuinely transient, retry once
     raise last_err
 
 
@@ -785,14 +793,17 @@ def run_agent_squad(model: str, messages: list[dict], workspace: str,
     if image_b64:   # build-from-screenshot: vision spec -> the coder + all fixers
         messages = _inject_image_spec(messages, image_b64)
     user_request = next((m["content"] for m in messages if m.get("role") == "user"), "")
-    st = {"run_id": None, "cost": 0.0, "written": set(), "last_test": None}
+    st = {"run_id": None, "cost": 0.0, "written": set(), "last_test": None, "answer": ""}
 
     def drive(mdl, msgs, system_base):
         """Run one agent pass, streaming its events and capturing build state."""
         last_call, cur_is_test = None, False
         st["last_test"] = None  # per-pass; the squad judges on the latest pass's test
+        st["answer"] = ""       # per-pass; how this pass ended (for crash/timeout detection)
         for ev in run_agent(mdl, msgs, workspace, approve, system_base=system_base):
             et = ev.get("type")
+            if et == "final_text":
+                st["answer"] = ev.get("answer") or ""
             if et == "run_started":
                 if st["run_id"] is None:
                     st["run_id"] = ev["run_id"]
@@ -816,6 +827,7 @@ def run_agent_squad(model: str, messages: list[dict], workspace: str,
     # 1) main build
     yield {"type": "stage", "stage": "building", "model": model, "round": 0}
     yield from drive(model, list(messages), None)
+    main_errored = bool(_agent_failed(st.get("answer", "")))  # crashed/timed out mid-build
 
     # 2) quality-check squad — each sub-agent inspects and fixes directly
     for key, lens in lenses:
@@ -830,22 +842,38 @@ def run_agent_squad(model: str, messages: list[dict], workspace: str,
                       "headless self-test to confirm it passes."}]
         yield from drive(checker, fixer_msg, FIXER_SYSTEM)
 
-    # 2b) AUTO-ESCALATION — the free/local squad couldn't get the self-test green, so pay
-    # for JUST the last-mile fix with a stronger model. Only fires when it's actually
-    # failing, so you stay free until the local path genuinely can't finish.
+    # 2b) AUTO-ESCALATION — the free/local path (build + squad) did not reach a green
+    # self-test. Pay for the last mile with a stronger model. Two distinct failure modes,
+    # each with the right paid action:
+    #   (a) total failure — the local model errored/timed out and wrote nothing (0 files),
+    #       or crashed before any test passed  ->  the paid model BUILDS it from scratch.
+    #   (b) buggy build — files exist but the self-test is red  ->  paid targeted FIX.
+    # A clean build that merely skipped writing a test does NOT escalate (no paid spend
+    # unless something is genuinely wrong), so you stay free until the local path can't.
     lt = st["last_test"]
-    if (lt is not None and lt[0] not in (0, None) and escalate_to
-            and escalate_to in llm.API_MODELS and escalate_to != checker and st["written"]):
-        yield {"type": "stage", "stage": f"escalate: paid fix ({escalate_to})",
-               "model": escalate_to, "round": 0}
-        esc_msg = [{"role": "user", "content":
-                    "Another model built a project in this workspace for this request:\n\n"
-                    f"<request>\n{user_request}\n</request>\n\n"
-                    "Its headless self-test is still FAILING with:\n"
-                    f"{lt[1][:800]}\n\n"
-                    "Diagnose and fix ALL the bugs with targeted edits (do not rewrite from "
-                    "scratch), then re-run the self-test until it exits 0."}]
-        yield from drive(escalate_to, esc_msg, FIXER_SYSTEM)
+    green = lt is not None and lt[0] == 0
+    test_red = lt is not None and lt[0] not in (0, None)
+    can_escalate = (bool(escalate_to) and escalate_to in llm.API_MODELS
+                    and escalate_to != checker)
+    if can_escalate and not green and (not st["written"] or main_errored or test_red):
+        if not st["written"]:
+            # nothing usable was built — hand the whole task to the paid model
+            yield {"type": "stage", "stage": f"escalate: paid build ({escalate_to})",
+                   "model": escalate_to, "round": 0}
+            yield from drive(escalate_to, list(messages), None)
+        else:
+            # something is there but broken — targeted paid fix
+            fail_txt = lt[1][:800] if lt else "(the build errored before any self-test passed)"
+            yield {"type": "stage", "stage": f"escalate: paid fix ({escalate_to})",
+                   "model": escalate_to, "round": 0}
+            esc_msg = [{"role": "user", "content":
+                        "Another model built a project in this workspace for this request:\n\n"
+                        f"<request>\n{user_request}\n</request>\n\n"
+                        "Its headless self-test is still FAILING (or never passed):\n"
+                        f"{fail_txt}\n\n"
+                        "Diagnose and fix ALL the bugs with targeted edits (do not rewrite from "
+                        "scratch), then re-run the self-test until it exits 0."}]
+            yield from drive(escalate_to, esc_msg, FIXER_SYSTEM)
 
     # 3) verdict from the final self-test, plus an optional paid review
     lt = st["last_test"]

@@ -92,6 +92,24 @@ STRESS_TASKS = {
         "playable, and test it yourself HEADLESSLY (a --selftest that steps a few frames and "
         "exits) to make sure it works before telling me it's done."
     ),
+    "node_cli": (
+        "make me a command-line tool in node.js (javascript) called wordcount. i run it "
+        "like `node wordcount.js some text here` and it prints each unique word with how "
+        "many times it appears, sorted from most to least common. include a package.json "
+        "and a test i can run with `npm test` that proves it works. make it actually run "
+        "and test it yourself before saying it's done."
+    ),
+    "raytracer": (
+        "make me a ray tracer in python from scratch — no graphics engines, just math and "
+        "pillow to save the image. render a 3d scene with several spheres of different "
+        "colors and materials (some shiny and reflective, some matte) sitting on a "
+        "checkered floor, lit by at least two lights so there are real shadows. add "
+        "reflections so the shiny spheres mirror the scene, and anti-aliasing so edges are "
+        "smooth. save the result as a PNG. it must actually run and produce a real rendered "
+        "3d image. test it yourself HEADLESSLY: render a small image, assert the PNG exists "
+        "and isn't blank, and use visual_check to confirm it looks like a lit 3d scene with "
+        "spheres and shadows — before telling me it's done."
+    ),
     "todo_app": (
         "build me a little to-do list app with a window where i can type a task, hit add, "
         "and see it in a list. i want to be able to check things off and delete them, and "

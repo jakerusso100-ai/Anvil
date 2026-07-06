@@ -183,9 +183,91 @@ def test_no_escalation_when_free_path_passes():
     check("squad: no escalation (no paid spend) when the free path passes", body)
 
 
+def _total_fail_then_paid_builds(paid_model):
+    """Local model times out with ZERO files (total failure); the paid model, handed the
+    whole task, builds it from scratch and its self-test passes. Records (model, system)."""
+    calls = []
+
+    def fake(model, messages, workspace, approve=lambda n, a: True, system_base=None):
+        calls.append((model, system_base))
+        yield {"type": "run_started", "run_id": "rid"}
+        if model == paid_model:
+            Path(workspace, "rt.py").write_text("code")
+            yield {"type": "tool_call", "name": "write_file", "args": {"path": "rt.py"}}
+            yield {"type": "tool_result", "name": "write_file", "output": "ok"}
+            yield {"type": "tool_call", "name": "bash", "args": {"command": "python rt.py --selftest"}}
+            yield {"type": "tool_result", "name": "bash", "output": "[exit 0]\nOK render 64x64"}
+            yield {"type": "final_text", "answer": "done"}
+        else:  # local: crashed/timed out, wrote nothing at all
+            yield {"type": "final_text", "answer": "(agent stopped on error: ReadTimeout)"}
+        yield {"type": "final", "cost": 0.001, "reviewed": False, "revised": False,
+               "passed": None, "answer": "", "run_id": "rid"}
+
+    return fake, calls
+
+
+def test_escalates_paid_build_on_total_failure():
+    """The gap the ray tracer exposed: the local build timed out with 0 files, so there was
+    no red self-test to trigger escalation — and Opus never ran. Escalation must fire on a
+    TOTAL failure too, and (with nothing to fix) hand the whole build to the paid model."""
+    def body():
+        ws = tempfile.mkdtemp()
+        fake, calls = _total_fail_then_paid_builds("claude-haiku-4-5")
+        real = agent.run_agent
+        agent.run_agent = fake
+        try:
+            evs = list(agent.run_agent_squad(
+                "local-coder", [{"role": "user", "content": "render a ray traced scene"}], ws,
+                checker_model="local-coder", review=False, escalate_to="claude-haiku-4-5"))
+        finally:
+            agent.run_agent = real
+        models = [m for m, _ in calls]
+        expect(models == ["local-coder", "claude-haiku-4-5"],
+               f"local total-failure -> squad skipped -> paid BUILD; got {models}")
+        paid = [sysb for m, sysb in calls if m == "claude-haiku-4-5"][0]
+        expect(paid is None, "escalation is a full BUILD (default system), not a FIXER pass on an empty folder")
+        expect(any("escalate: paid build" in str(e.get("stage", "")) for e in evs),
+               "emits a 'paid build' escalate stage (not 'paid fix')")
+        expect(evs[-1]["passed"] is True, "the paid build's self-test passed -> passed")
+        expect(Path(ws, "rt.py").exists(), "the paid model actually produced the files")
+    check("squad: total failure (0 files) auto-escalates to a paid BUILD from scratch", body)
+
+
+def test_no_escalation_on_clean_build_without_test():
+    """Don't burn paid spend on a build that finished cleanly and simply didn't write a
+    self-test — only escalate when something is genuinely wrong (0 files / error / red test)."""
+    def body():
+        ws = tempfile.mkdtemp()
+        calls = []
+
+        def fake(model, messages, workspace, approve=lambda n, a: True, system_base=None):
+            calls.append(model)
+            Path(workspace, "a.py").write_text("code")
+            yield {"type": "run_started", "run_id": "rid"}
+            yield {"type": "tool_call", "name": "write_file", "args": {"path": "a.py"}}
+            yield {"type": "tool_result", "name": "write_file", "output": "ok"}
+            yield {"type": "final_text", "answer": "done"}  # clean finish, no self-test, no error
+            yield {"type": "final", "cost": 0.001, "reviewed": False, "revised": False,
+                   "passed": None, "answer": "", "run_id": "rid"}
+
+        real = agent.run_agent
+        agent.run_agent = fake
+        try:
+            evs = list(agent.run_agent_squad(
+                "local-coder", [{"role": "user", "content": "x"}], ws,
+                checker_model="local-coder", review=False, escalate_to="claude-haiku-4-5"))
+        finally:
+            agent.run_agent = real
+        expect("claude-haiku-4-5" not in calls, "no paid spend on a clean build that merely lacks a test")
+        expect(not any(str(e.get("stage", "")).startswith("escalate") for e in evs), "no escalate stage")
+    check("squad: a clean build with no self-test does NOT escalate (no needless paid spend)", body)
+
+
 if __name__ == "__main__":
     print("== build + fixers =="); test_build_then_fixer_squad()
     print("== auto-escalate =="); test_auto_escalates_when_free_path_fails()
+    print("== total-failure -> paid build =="); test_escalates_paid_build_on_total_failure()
+    print("== no escalation without test =="); test_no_escalation_on_clean_build_without_test()
     print("== no needless escalation =="); test_no_escalation_when_free_path_passes()
     print("== verdict follows selftest =="); test_squad_verdict_follows_last_selftest()
     print("== empty skips squad =="); test_empty_build_skips_squad()

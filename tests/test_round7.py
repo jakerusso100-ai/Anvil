@@ -115,8 +115,10 @@ def test_first_run_health():
 
 
 def test_ollama_step_hardening():
-    """A transient Ollama 500 or hang must retry once (not kill the build); a 4xx
-    fails fast. This is the gap the chess stress reruns exposed."""
+    """A transient Ollama 500 or dropped connection must retry once (not kill the build);
+    a 4xx fails fast. A read-timeout also fails fast — retrying a too-slow generation just
+    burns another full timeout (the ray tracer stress run wasted ~14 min doing exactly
+    that), so we fail fast and let the paid escalation take the hardest tasks."""
     import requests as _rq
 
     class FakeResp:
@@ -172,13 +174,33 @@ def test_ollama_step_hardening():
         expect(calls["n"] == 1, "a 4xx is not retried")
     check("ollama-step: 4xx fails fast (no retry)", fail_fast_on_400)
 
-    def retry_on_hang():
+    def fail_fast_on_timeout():
+        calls = {"n": 0}
+
+        def fake_post(url, **k):
+            calls["n"] += 1
+            raise _rq.Timeout("read timed out")
+        real = agent.requests.post
+        agent.requests.post = fake_post
+        try:
+            raised = False
+            try:
+                agent._ollama_step("m", [{"role": "user", "content": "hi"}])
+            except _rq.Timeout:
+                raised = True
+        finally:
+            agent.requests.post = real
+        expect(raised, "a read-timeout propagates")
+        expect(calls["n"] == 1, "a read-timeout is NOT retried (retry would just time out again)")
+    check("ollama-step: read-timeout fails fast (no wasteful retry)", fail_fast_on_timeout)
+
+    def retry_on_connection_drop():
         calls = {"n": 0}
 
         def fake_post(url, **k):
             calls["n"] += 1
             if calls["n"] == 1:
-                raise _rq.Timeout("read timed out")
+                raise _rq.ConnectionError("connection reset")
             return FakeResp(200, {"message": {"role": "assistant", "content": "recovered"}})
         real = agent.requests.post
         agent.requests.post = fake_post
@@ -186,9 +208,9 @@ def test_ollama_step_hardening():
             m = agent._ollama_step("m", [{"role": "user", "content": "hi"}])
         finally:
             agent.requests.post = real
-        expect(m["content"] == "recovered", "recovers after a single hang")
-        expect(calls["n"] == 2, "a hang is retried once")
-    check("ollama-step: retries once on a hang (timeout)", retry_on_hang)
+        expect(m["content"] == "recovered", "recovers after a single dropped/refused socket")
+        expect(calls["n"] == 2, "a genuinely transient connection drop is retried once")
+    check("ollama-step: retries once on a dropped connection", retry_on_connection_drop)
 
 
 def test_context_management():
