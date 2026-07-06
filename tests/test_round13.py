@@ -20,6 +20,8 @@ from test_anvil import FAIL, check, expect  # noqa: E402
 import tools  # noqa: E402
 import agent  # noqa: E402
 
+tools.PLAYBOOK_PATH = None  # isolate these tests from the repo-bundled playbook
+
 
 def _make_vault():
     v = Path(tempfile.mkdtemp())
@@ -80,8 +82,27 @@ def test_injected_into_system_prompt():
     check("rag: query from messages -> note injected into prompt", body)
 
 
+def test_semantic_falls_back_to_keyword():
+    def body():
+        v = _make_vault()   # has the Panda3D note
+        old_pb, old_v = tools.PLAYBOOK_PATH, tools.VAULT_PATH
+        tools.PLAYBOOK_PATH = str(v)   # treat temp vault as the bundled playbook
+        tools.VAULT_PATH = None
+        import semindex
+        real = semindex._embed
+        semindex._embed = lambda texts: (_ for _ in ()).throw(RuntimeError("nomic down"))
+        try:
+            out = tools.vault_lookup("3d first person walking simulator physics npcs")
+        finally:
+            semindex._embed = real
+            tools.PLAYBOOK_PATH, tools.VAULT_PATH = old_pb, old_v
+        expect("BulletWorld" in out, "keyword fallback still finds the note when embeddings are down")
+    check("rag: semantic failure -> keyword fallback still retrieves", body)
+
+
 if __name__ == "__main__":
     print("== relevant note =="); test_lookup_returns_relevant_note()
+    print("== semantic fallback =="); test_semantic_falls_back_to_keyword()
     print("== empty cases =="); test_lookup_empty_when_no_match_or_no_vault()
     print("== injection =="); test_injected_into_system_prompt()
     import test_anvil

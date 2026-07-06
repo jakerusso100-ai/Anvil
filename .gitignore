@@ -19,3 +19,6 @@ Thumbs.db
 
 # build artifacts (regenerable — don't version)
 dist/
+
+# RAG embedding cache (regenerated from playbook notes)
+playbook/.rag_vectors.json

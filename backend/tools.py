@@ -6,6 +6,7 @@ a timeout. Web tools give local models the same internet access Claude has.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -106,6 +107,11 @@ VAULT_SPECS = [
 # set by the UI (settings) — when set, vault tools are exposed to the agent
 VAULT_PATH: str | None = None
 
+# The coding playbook shipped WITH Anvil (repo_root/playbook) — always searched for RAG so
+# every user gets the reference patterns out of the box, on top of their own vault.
+PLAYBOOK_PATH: str | None = (str(Path(__file__).parent.parent / "playbook")
+                             if (Path(__file__).parent.parent / "playbook").is_dir() else None)
+
 
 _LAST_VAULT_LOOKUP: list[str] = []   # note names injected by the most recent vault_lookup
 _VAULT_STOP = {"and", "the", "for", "with", "you", "are", "that", "this", "have", "make",
@@ -113,36 +119,77 @@ _VAULT_STOP = {"and", "the", "for", "with", "you", "are", "that", "this", "have"
                "just", "like", "some", "any", "them", "there", "when", "what", "how"}
 
 
-def vault_lookup(query: str, k: int = 2, cap: int = 6000) -> str:
-    """Proactive RAG: return the full text of the top-k vault notes matching `query`
-    (capped), or '' if none clearly match. Injected into the agent's system prompt so the
-    model has the reference in context WITHOUT having to remember to vault_search — models
-    default to web tools and skip the vault otherwise."""
-    _LAST_VAULT_LOOKUP.clear()
-    if not VAULT_PATH:
-        return ""
-    # drop stopwords so a note doesn't "match" just by containing 'and'/'with'/etc.
-    terms = [t for t in query.lower().split() if len(t) > 2 and t not in _VAULT_STOP]
-    if not terms:
-        return ""
+def _keyword_notes(root: str, terms: list, k: int) -> list:
+    """Keyword-score .md notes under `root`; return top-k [(stem, body)] scoring >= 4."""
     scored = []
-    for md in Path(VAULT_PATH).rglob("*.md"):
+    for md in Path(root).rglob("*.md"):
         if ".obsidian" in md.parts or ".trash" in md.parts:
             continue
         try:
             body = md.read_text(encoding="utf-8", errors="replace")
         except Exception:
             continue
-        hay = (md.stem + "\n" + body).lower()
-        score = sum(hay.count(t) for t in terms)
-        if score:
+        score = sum((md.stem + "\n" + body).lower().count(t) for t in terms)
+        if score >= 4:
             scored.append((score, md.stem, body))
     scored.sort(reverse=True)
-    if not scored or scored[0][0] < 4:      # nothing clearly relevant — inject nothing
-        return ""
+    return [(stem, body) for _, stem, body in scored[:k]]
+
+
+_PB_VEC: dict = {}   # cached playbook embeddings: {"sig", "notes":[{stem,body,vec}]}
+
+
+def _playbook_semantic(query: str, k: int, floor: float = 0.45) -> list | None:
+    """Semantic top-k over the bundled playbook via nomic-embed (cached to
+    playbook/.rag_vectors.json). Returns [(stem, body)] by cosine >= floor, or None when
+    embeddings aren't available (Ollama/nomic down) so the caller falls back to keyword."""
+    if not PLAYBOOK_PATH:
+        return None
+    notes = []
+    for md in Path(PLAYBOOK_PATH).rglob("*.md"):
+        if ".obsidian" in md.parts:
+            continue
+        try:
+            notes.append((md.stem, md.read_text(encoding="utf-8", errors="replace")))
+        except Exception:
+            continue
+    if not notes:
+        return None
+    sig = hashlib.md5(("|".join(sorted(s for s, _ in notes))
+                       + str(sum(len(b) for _, b in notes))).encode()).hexdigest()
+    vecs = _PB_VEC["notes"] if _PB_VEC.get("sig") == sig else None
+    if vecs is None:
+        cache_f = Path(PLAYBOOK_PATH) / ".rag_vectors.json"
+        if cache_f.exists():
+            try:
+                data = json.loads(cache_f.read_text())
+                if data.get("sig") == sig:
+                    vecs = data["notes"]; _PB_VEC.update(data)
+            except Exception:
+                pass
+    try:
+        import semindex
+        if vecs is None:                       # (re)build + cache the embeddings once
+            vecs = [{"stem": s, "body": b, "vec": semindex._embed([f"{s}\n{b[:800]}"])[0]}
+                    for s, b in notes]
+            _PB_VEC.update({"sig": sig, "notes": vecs})
+            try:
+                (Path(PLAYBOOK_PATH) / ".rag_vectors.json").write_text(
+                    json.dumps({"sig": sig, "notes": vecs}))
+            except Exception:
+                pass
+        qv = semindex._embed([query])[0]
+        ranked = sorted(((semindex._cosine(qv, n["vec"]), n["stem"], n["body"]) for n in vecs),
+                        reverse=True)
+    except Exception:
+        return None                            # embeddings unavailable -> keyword fallback
+    return [(stem, body) for sim, stem, body in ranked if sim >= floor][:k]
+
+
+def _format_rag(pairs: list, cap: int) -> str:
     out, total = [], 0
-    for score, stem, body in scored[:k]:
-        if score < 3 or total >= cap:       # per-note floor: skip weak/incidental matches
+    for stem, body in pairs:
+        if total >= cap:
             break
         chunk = body[: cap - total]
         out.append(f"### {stem}\n{chunk}")
@@ -150,9 +197,28 @@ def vault_lookup(query: str, k: int = 2, cap: int = 6000) -> str:
         _LAST_VAULT_LOOKUP.append(stem)
     if not out:
         return ""
-    return ("\n\nReference notes auto-retrieved from the connected knowledge vault for this "
-            "task — use these correct patterns instead of guessing or re-deriving the API:\n\n"
+    return ("\n\nReference notes auto-retrieved from the knowledge vault for this task — use "
+            "these correct patterns instead of guessing or re-deriving the API:\n\n"
             + "\n\n".join(out))
+
+
+def vault_lookup(query: str, k: int = 2, cap: int = 6000) -> str:
+    """Proactive RAG: full text of the top-k reference notes for `query`, injected into the
+    agent's system prompt so the model has the pattern in context without having to search.
+    Semantic (nomic-embed) over the bundled playbook when available, keyword otherwise and
+    for the user's own vault. '' when nothing clearly matches (won't inject noise)."""
+    _LAST_VAULT_LOOKUP.clear()
+    terms = [t for t in query.lower().split() if len(t) > 2 and t not in _VAULT_STOP]
+    if not terms:
+        return ""
+    pairs, seen = [], set()
+    sem = _playbook_semantic(query, k)
+    pb = sem if sem is not None else (_keyword_notes(PLAYBOOK_PATH, terms, k) if PLAYBOOK_PATH else [])
+    for stem, body in pb + (_keyword_notes(VAULT_PATH, terms, k)
+                            if VAULT_PATH and VAULT_PATH != PLAYBOOK_PATH else []):
+        if stem not in seen:
+            seen.add(stem); pairs.append((stem, body))
+    return _format_rag(pairs[:k], cap)
 
 
 def detect_vaults() -> list[str]:
