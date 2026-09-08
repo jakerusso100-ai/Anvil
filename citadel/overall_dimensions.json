@@ -1,0 +1,21 @@
+{
+  "units": "meters",
+  "height_total": 30720,
+  "height_deck_to_antenna_tip": 10000,
+  "height_above_deck_incl_antenna": 10000,
+  "depth_below_deck_to_keel_emitter": 13220,
+  "depth_below_deck_to_leg_feet": 20720,
+  "width_x_extent": 30395.890982936726,
+  "width_z_extent": 28860.0,
+  "bounding_circle_diameter_plan": 34040,
+  "hub_deck_diameter": 17000,
+  "hub_dome_diameter": 15200,
+  "hub_dome_height": 5700,
+  "pod_deck_diameter": 6600,
+  "pod_center_distance": 13600,
+  "bridge_clear_span": 1800,
+  "leg_length": 17568,
+  "leg_rake_deg": 21.0,
+  "antenna_height": 4300,
+  "council_tower_height": 4050
+}

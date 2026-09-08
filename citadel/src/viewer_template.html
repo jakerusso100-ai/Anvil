@@ -1,0 +1,465 @@
+<title>Citadel of Ricks</title>
+<meta name="description" content="1:1 3D model of the Citadel of Ricks with dimensioned schematic and part list.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #0a0c10;
+    --panel: rgba(20, 25, 34, 0.88);
+    --panel-solid: #141922;
+    --line: #2a3140;
+    --line-strong: #3b4557;
+    --text: #e6e1d8;
+    --muted: #8b95a7;
+    --accent: #e8843a;
+    --accent-soft: rgba(232, 132, 58, 0.16);
+    --teal: #7fd8c8;
+    --teal-soft: rgba(127, 216, 200, 0.14);
+    --display: 'Chakra Petch', 'Rajdhani', 'Segoe UI', system-ui, sans-serif;
+    --body: 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif;
+    --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--ground); color: var(--text); font-family: var(--body); font-size: 14px; line-height: 1.45; overflow: hidden; }
+  * { box-sizing: border-box; }
+  button, input, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+  .label { position: absolute; transform: translate(-50%, -100%); padding: 2px 7px 3px; border: 1px solid var(--line-strong); border-radius: 3px; background: rgba(10, 12, 16, 0.78); font-family: var(--mono); font-size: 11px; color: var(--teal); white-space: nowrap; letter-spacing: 0.02em; }
+  .label::after { content: ''; position: absolute; left: 50%; bottom: -7px; width: 1px; height: 7px; background: var(--line-strong); }
+
+  /* top bar ---------------------------------------------------------------- */
+  #top { position: fixed; top: 0; left: 0; right: 0; height: 52px; display: flex; align-items: center; gap: 14px; padding: 0 16px; background: linear-gradient(to bottom, rgba(10,12,16,0.92), rgba(10,12,16,0)); pointer-events: none; z-index: 5; }
+  #top > * { pointer-events: auto; }
+  #brand { display: flex; align-items: baseline; gap: 10px; }
+  #brand h1 { margin: 0; font-family: var(--display); font-weight: 700; font-size: 20px; letter-spacing: 0.04em; text-transform: uppercase; }
+  #brand .tag { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: 0.08em; }
+  #tabs { margin-left: auto; display: flex; gap: 2px; border: 1px solid var(--line); border-radius: 6px; padding: 2px; background: var(--panel); }
+  #tabs button { border: 0; background: transparent; padding: 5px 12px; border-radius: 4px; font-family: var(--display); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; color: var(--muted); cursor: pointer; }
+  #tabs button[aria-selected="true"] { background: var(--accent-soft); color: var(--text); }
+  #panelToggle { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 6px; padding: 5px 10px; cursor: pointer; font-family: var(--mono); font-size: 11px; }
+
+  /* side rail -------------------------------------------------------------- */
+  #rail { position: fixed; top: 60px; left: 12px; bottom: 12px; width: 322px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; padding-right: 4px; z-index: 4; scrollbar-width: thin; }
+  #rail.hidden { display: none; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; backdrop-filter: blur(8px); }
+  .card h2 { margin: 0 0 8px; font-family: var(--display); font-size: 12px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips button { border: 1px solid var(--line-strong); background: transparent; border-radius: 999px; padding: 4px 11px; font-size: 12.5px; cursor: pointer; color: var(--text); }
+  .chips button:hover { border-color: var(--accent); }
+  .chips button.active { background: var(--accent-soft); border-color: var(--accent); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
+  .row label { flex: 1; cursor: pointer; }
+  .row input[type="range"] { width: 130px; accent-color: var(--accent); }
+  .row input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
+  .layers { display: grid; grid-template-columns: 1fr; gap: 2px; font-size: 12.5px; }
+  .layers .row { padding: 2px 0; border-bottom: 1px dashed rgba(42, 49, 64, 0.6); }
+  .layers .row:last-child { border-bottom: 0; }
+  .layers .id { font-family: var(--mono); color: var(--accent); font-size: 11px; width: 38px; }
+  .layers .dims { font-family: var(--mono); color: var(--muted); font-size: 10.5px; }
+  .kv { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; font-size: 12.5px; }
+  .kv dt { color: var(--muted); margin: 0; }
+  .kv dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .actions button { flex: 1; border: 1px solid var(--line-strong); background: transparent; border-radius: 6px; padding: 7px 10px; cursor: pointer; font-family: var(--display); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; font-size: 11.5px; }
+  .actions button:hover { border-color: var(--teal); color: var(--teal); }
+  .note { color: var(--muted); font-size: 11.5px; margin: 8px 0 0; line-height: 1.4; }
+
+  /* hud -------------------------------------------------------------------- */
+  #hud { position: fixed; right: 12px; bottom: 12px; min-width: 260px; max-width: 420px; z-index: 4; }
+  #hud .name { font-family: var(--display); font-size: 15px; font-weight: 600; letter-spacing: 0.03em; }
+  #hud .sub { font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  #hud .cam { font-family: var(--mono); font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); margin-top: 8px; padding-top: 6px; display: flex; justify-content: space-between; gap: 12px; }
+  #hud .id { color: var(--accent); }
+
+  /* schematic + spec panes ------------------------------------------------- */
+  .pane { position: fixed; inset: 52px 0 0 0; display: none; z-index: 3; background: var(--ground); }
+  .pane.active { display: block; }
+  #schematicPane .scroller { position: absolute; inset: 44px 0 0 0; overflow: auto; }
+  #schematicPane .bar { position: absolute; top: 0; left: 0; right: 0; height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel-solid); font-size: 12.5px; color: var(--muted); }
+  #schematicPane .bar button { border: 1px solid var(--line-strong); background: transparent; border-radius: 4px; padding: 3px 9px; cursor: pointer; font-family: var(--mono); font-size: 11.5px; }
+  #schematicWrap { transform-origin: 0 0; padding: 16px; width: max-content; }
+  #schematicWrap svg { display: block; box-shadow: 0 0 0 1px var(--line); }
+  #specPane { overflow: auto; padding: 24px clamp(16px, 4vw, 48px) 48px; }
+  #specPane .cols { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 24px; max-width: 1400px; }
+  @media (max-width: 900px) { #specPane .cols { grid-template-columns: 1fr; } }
+  #specPane h2 { font-family: var(--display); font-size: 14px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+  #specPane p { max-width: 68ch; color: var(--text); }
+  table.parts { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.parts th { text-align: left; font-family: var(--display); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 11px; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line-strong); }
+  table.parts td { padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.parts td.mono { font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+  table.parts td.id { font-family: var(--mono); color: var(--accent); }
+  .tablewrap { overflow-x: auto; }
+  pre.json { font-family: var(--mono); font-size: 11.5px; line-height: 1.45; color: #b9c2d0; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 8px; padding: 14px; overflow: auto; max-height: 70vh; margin: 0; }
+
+  #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 10px; background: var(--ground); z-index: 20; font-family: var(--display); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); font-size: 12px; }
+  #loading .bar { width: 220px; height: 2px; background: var(--line); overflow: hidden; }
+  #loading .bar i { display: block; height: 100%; width: 40%; background: var(--accent); animation: slide 1.1s linear infinite; }
+  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+  @media (prefers-reduced-motion: reduce) { #loading .bar i { animation: none; width: 100%; } }
+  @media (max-width: 760px) {
+    #rail { width: min(322px, calc(100vw - 24px)); top: auto; bottom: 12px; max-height: 46vh; }
+    #hud { display: none; }
+    #brand .tag { display: none; }
+  }
+</style>
+<!--__BODY_SPLIT__-->
+<div id="stage"></div>
+<div id="labels"></div>
+
+<header id="top">
+  <div id="brand"><h1>Citadel of Ricks</h1><span class="tag">1 : 1 &nbsp;·&nbsp; metres &nbsp;·&nbsp; spec v<span id="specVersion"></span></span></div>
+  <button id="panelToggle" type="button" aria-pressed="true">panel</button>
+  <div id="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="model" type="button">Model</button>
+    <button role="tab" aria-selected="false" data-tab="schematic" type="button">Schematic</button>
+    <button role="tab" aria-selected="false" data-tab="spec" type="button">Spec</button>
+  </div>
+</header>
+
+<aside id="rail">
+  <section class="card">
+    <h2>Views</h2>
+    <div class="chips" id="viewChips"></div>
+    <p class="note">Drag to orbit · scroll to zoom · right-drag to pan. "Show angle" is the recurring establishing shot from S1E10 / S3E1 / S3E7.</p>
+  </section>
+  <section class="card">
+    <h2>Display</h2>
+    <div class="row"><label for="optGlass">Dome glass opacity</label><input id="optGlass" type="range" min="0.05" max="1" step="0.01" value="0.28"></div>
+    <div class="row"><label for="optLabels">Part labels</label><input id="optLabels" type="checkbox"></div>
+    <div class="row"><label for="optWire">Wireframe</label><input id="optWire" type="checkbox"></div>
+    <div class="row"><label for="optNebula">Nebula backdrop</label><input id="optNebula" type="checkbox" checked></div>
+    <div class="row"><label for="optGrid">Scale grid at leg-foot plane (5 km rings)</label><input id="optGrid" type="checkbox"></div>
+    <div class="row"><label for="optRotate">Auto-orbit</label><input id="optRotate" type="checkbox"></div>
+  </section>
+  <section class="card">
+    <h2>Layers</h2>
+    <div class="layers" id="layerList"></div>
+  </section>
+  <section class="card">
+    <h2>Envelope</h2>
+    <dl class="kv" id="envelope"></dl>
+    <p class="note" id="scaleNote"></p>
+  </section>
+  <section class="card">
+    <h2>Export</h2>
+    <div class="actions">
+      <button type="button" id="btnGLB">GLB</button>
+      <button type="button" id="btnOBJ">OBJ</button>
+      <button type="button" id="btnPNG">PNG</button>
+    </div>
+    <p class="note">Exports are the exact scene shown here, in metres. Downloads work when this file is opened locally; a hosted copy may block downloads, in which case use the files in <span style="font-family:var(--mono)">exports/</span>.</p>
+  </section>
+</aside>
+
+<div id="hud" class="card">
+  <div class="name" id="hudName">Hover a part to identify it</div>
+  <div class="sub" id="hudSub">Click to pin · Esc to release</div>
+  <div class="cam"><span id="hudCam">—</span><span id="hudStats">—</span></div>
+</div>
+
+<div id="schematicPane" class="pane">
+  <div class="bar">
+    <span>General arrangement · 4 sheets · generated from spec.json</span>
+    <button type="button" data-zoom="-">−</button><button type="button" data-zoom="+">+</button><button type="button" data-zoom="fit">fit</button><button type="button" data-zoom="1">100%</button>
+  </div>
+  <div class="scroller"><div id="schematicWrap"><!--__SCHEMATIC__--></div></div>
+</div>
+
+<div id="specPane" class="pane">
+  <div class="cols">
+    <div>
+      <h2>Parts list</h2>
+      <div class="tablewrap"><table class="parts" id="partsTable"><thead><tr><th>ID</th><th>Part</th><th>Qty</th><th>Key dimensions</th></tr></thead><tbody></tbody></table></div>
+      <h2 style="margin-top:24px">Scale basis</h2>
+      <p id="basisText"></p>
+      <p id="confText" style="color:var(--muted)"></p>
+      <h2 style="margin-top:24px">Canonical references</h2>
+      <div class="tablewrap"><table class="parts" id="refsTable"><thead><tr><th>Episode</th><th>Title</th><th>What it establishes</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div>
+      <h2>spec.json</h2>
+      <pre class="json" id="specJson"></pre>
+    </div>
+  </div>
+</div>
+
+<div id="loading"><div>Building the Citadel</div><div class="bar"><i></i></div></div>
+
+<script>/*__THREE__*/</script>
+<script>/*__ORBIT__*/</script>
+<script>/*__GLTF__*/</script>
+<script>/*__OBJ__*/</script>
+<script>/*__GEOMETRY__*/</script>
+<script id="specData" type="application/json">/*__SPEC__*/</script>
+<script id="overallData" type="application/json">/*__OVERALL__*/</script>
+<script>
+(function () {
+  'use strict';
+  const SPEC = JSON.parse(document.getElementById('specData').textContent);
+  const OVERALL = JSON.parse(document.getElementById('overallData').textContent);
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const DEG = Math.PI / 180;
+  const fmt = (v) => Math.round(v).toLocaleString('en-US') + ' m';
+  const km = (v) => (v / 1000).toFixed(v < 10000 ? 2 : 1) + ' km';
+
+  // ---------------------------------------------------------------- renderer
+  const stage = document.getElementById('stage');
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(stage.clientWidth, stage.clientHeight);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  stage.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(SPEC.environment ? '#050608' : '#000');
+  const camera = new THREE.PerspectiveCamera(38, stage.clientWidth / stage.clientHeight, 40, 1.4e6);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.08;
+  controls.minDistance = 300; controls.maxDistance = 320000;
+  controls.autoRotateSpeed = 0.6;
+
+  // ------------------------------------------------------------------ lights
+  const E = SPEC.environment;
+  const key = new THREE.DirectionalLight(E.key_light.color, E.key_light.intensity);
+  key.position.fromArray(E.key_light.direction).multiplyScalar(1e5); scene.add(key);
+  const rim = new THREE.DirectionalLight(E.rim_light.color, E.rim_light.intensity);
+  rim.position.fromArray(E.rim_light.direction).multiplyScalar(1e5); scene.add(rim);
+  scene.add(new THREE.AmbientLight(E.ambient.color, E.ambient.intensity));
+  scene.add(new THREE.HemisphereLight('#2b1a10', '#0b0f16', 0.5));
+
+  // ------------------------------------------------------------- environment
+  function nebulaTexture() {
+    const w = 2048, h = 1024, c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d');
+    const rnd = CitadelGeometry.mulberry32(4242);
+    const cols = E.nebula.colors;
+    g.fillStyle = '#04050a'; g.fillRect(0, 0, w, h);
+    // broad warm band, brightest around one region of the sky
+    const band = g.createLinearGradient(0, 0, 0, h);
+    band.addColorStop(0, 'rgba(20,10,8,0)'); band.addColorStop(0.35, 'rgba(90,40,16,0.7)'); band.addColorStop(0.55, 'rgba(150,68,24,0.75)'); band.addColorStop(0.8, 'rgba(30,14,8,0.2)'); band.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = band; g.fillRect(0, 0, w, h);
+    const blob = (x, y, r, col, a) => {
+      const rg = g.createRadialGradient(x, y, 0, x, y, r);
+      rg.addColorStop(0, col.replace(')', `,${a})`).replace('rgb', 'rgba')); rg.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = rg; g.fillRect(x - r, y - r, 2 * r, 2 * r);
+    };
+    const toRgb = (hex) => { const n = parseInt(hex.slice(1), 16); return `rgb(${n >> 16},${(n >> 8) & 255},${n & 255})`; };
+    for (let i = 0; i < 90; i++) {
+      const x = rnd() * w, y = h * (0.28 + 0.5 * rnd()), r = 90 + rnd() * 380;
+      blob(x, y, r, toRgb(cols[Math.floor(rnd() * cols.length)]), 0.10 + rnd() * 0.22);
+    }
+    for (let i = 0; i < 24; i++) { // bright cores
+      const x = w * (0.55 + 0.35 * rnd()), y = h * (0.42 + 0.22 * rnd()), r = 40 + rnd() * 160;
+      blob(x, y, r, toRgb(cols[3]), 0.14 + rnd() * 0.2);
+    }
+    for (let i = 0; i < 40; i++) { // dark dust lanes
+      const x = rnd() * w, y = h * (0.3 + 0.45 * rnd()), r = 60 + rnd() * 260;
+      blob(x, y, r, 'rgb(4,3,6)', 0.25 + rnd() * 0.35);
+    }
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.mapping = THREE.EquirectangularReflectionMapping;
+    return tex;
+  }
+  const nebula = new THREE.Mesh(new THREE.SphereGeometry(E.nebula.sky_radius, 48, 24), new THREE.MeshBasicMaterial({ map: nebulaTexture(), side: THREE.BackSide, depthWrite: false }));
+  nebula.rotation.y = 2.4; scene.add(nebula);
+  scene.environment = nebula.material.map;
+
+  function stars() {
+    const rnd = CitadelGeometry.mulberry32(77);
+    const n = E.stars.count, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const u = rnd() * 2 - 1, t = rnd() * Math.PI * 2, s = Math.sqrt(1 - u * u), r = E.stars.radius * (0.9 + 0.1 * rnd());
+      pos.set([r * s * Math.cos(t), r * u, r * s * Math.sin(t)], i * 3);
+      const b = 0.55 + rnd() * 0.45, warm = rnd() < 0.3;
+      col.set([b, b * (warm ? 0.9 : 0.97), b * (warm ? 0.8 : 1)], i * 3);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return new THREE.Points(g, new THREE.PointsMaterial({ size: 2.2, sizeAttenuation: false, vertexColors: true, depthWrite: false }));
+  }
+  scene.add(stars());
+
+  // -------------------------------------------------------------------- model
+  const built = CitadelGeometry.buildCitadel(THREE, SPEC);
+  const root = built.root; scene.add(root);
+  const footY = SPEC.legs.foot.y - SPEC.legs.foot_pad.thickness;
+  const grid = new THREE.PolarGridHelper(25000, 12, 5, 96, '#3b4557', '#2a3140');
+  grid.position.y = footY - 5; grid.visible = false; scene.add(grid);
+
+  // ------------------------------------------------------------------ labels
+  const labelDefs = [
+    ['Antenna mast', [0, SPEC.hub.antenna.base_y + SPEC.hub.antenna.height * 0.7, 0]],
+    ['Main dome · Ø 15.2 km', [0, SPEC.hub.dome.height * 0.98, 0]],
+    ['Council spire', [0, SPEC.hub.council_tower.height + 600, 0]],
+    ['Hangar bays', [SPEC.hub.deck_rim_band.radius * Math.cos(22.5 * DEG), SPEC.hub.hangar_bays.y, SPEC.hub.deck_rim_band.radius * Math.sin(22.5 * DEG)]],
+    ['Metallic plates', [SPEC.understructure.plates[1].radius, SPEC.understructure.plates[1].top_y, 0]],
+    ['Keel', [SPEC.understructure.keel.radius, SPEC.understructure.keel.top_y - SPEC.understructure.keel.height / 2, 0]],
+    ['Keel emitter', [0, SPEC.understructure.keel_emitter.y - 700, 0]],
+  ];
+  SPEC.pods.azimuths_deg.forEach((a, i) => labelDefs.push([`Pod ${i + 1} (${a}°)`, [Math.cos(a * DEG) * SPEC.pods.center_distance, SPEC.pods.dome.height + 150, Math.sin(a * DEG) * SPEC.pods.center_distance]]));
+  SPEC.legs.azimuths_deg.forEach((a, i) => labelDefs.push([`Leg ${i + 1} (${a}°)`, [Math.cos(a * DEG) * (SPEC.legs.attach.ring_radius + SPEC.legs.foot.ring_radius) / 2, (SPEC.legs.attach.y + SPEC.legs.foot.y) / 2, Math.sin(a * DEG) * (SPEC.legs.attach.ring_radius + SPEC.legs.foot.ring_radius) / 2]]));
+  labelDefs.push(['Bridge · 1.8 km span', [Math.cos(330 * DEG) * 9400, 250, Math.sin(330 * DEG) * 9400]]);
+  const labelLayer = document.getElementById('labels');
+  const labels = labelDefs.map(([text, p]) => { const el = document.createElement('div'); el.className = 'label'; el.textContent = text; el.hidden = true; labelLayer.appendChild(el); return { el, pos: new THREE.Vector3().fromArray(p) }; });
+  let showLabels = false;
+  const _v = new THREE.Vector3();
+  function updateLabels() {
+    const w = stage.clientWidth, h = stage.clientHeight;
+    for (const l of labels) {
+      if (!showLabels) { l.el.hidden = true; continue; }
+      _v.copy(l.pos).project(camera);
+      const behind = _v.z > 1;
+      l.el.hidden = behind || Math.abs(_v.x) > 1.05 || Math.abs(_v.y) > 1.05;
+      if (!l.el.hidden) { l.el.style.left = ((_v.x + 1) / 2 * w) + 'px'; l.el.style.top = ((1 - _v.y) / 2 * h - 8) + 'px'; }
+    }
+  }
+
+  // ------------------------------------------------------------------ camera
+  function camFrom(v) {
+    const t = new THREE.Vector3().fromArray(v.target || [0, 0, 0]);
+    const el = v.elevation_deg * DEG, az = v.azimuth_deg * DEG;
+    return { target: t, pos: new THREE.Vector3(t.x + v.distance * Math.cos(el) * Math.cos(az), t.y + v.distance * Math.sin(el), t.z + v.distance * Math.cos(el) * Math.sin(az)) };
+  }
+  let tween = null;
+  function setCamera(v, animate) {
+    const to = camFrom(v);
+    if (!animate || reduced) { camera.position.copy(to.pos); controls.target.copy(to.target); controls.update(); tween = null; return; }
+    tween = { fromPos: camera.position.clone(), fromT: controls.target.clone(), toPos: to.pos, toT: to.target, t0: performance.now(), dur: 1100 };
+  }
+  function setView(name) {
+    setCamera(SPEC.views[name], true);
+    document.querySelectorAll('#viewChips button').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
+  }
+
+  // ---------------------------------------------------------------------- ui
+  const viewNames = { show_angle: 'Show angle', top: 'Top', front: 'Front', side: 'Side', underside: 'Underside' };
+  const chips = document.getElementById('viewChips');
+  for (const k of Object.keys(SPEC.views)) { const b = document.createElement('button'); b.type = 'button'; b.dataset.view = k; b.textContent = viewNames[k] || k; b.addEventListener('click', () => setView(k)); chips.appendChild(b); }
+  document.getElementById('specVersion').textContent = SPEC.version;
+
+  const layerList = document.getElementById('layerList');
+  for (const p of built.parts) {
+    const row = document.createElement('div'); row.className = 'row';
+    const id = `layer_${p.id}`;
+    row.innerHTML = `<span class="id">${p.id}</span><label for="${id}">${p.name}<div class="dims">×${p.qty} · ${p.dims}</div></label><input id="${id}" type="checkbox" checked>`;
+    row.querySelector('input').addEventListener('change', (e) => { p.group.visible = e.target.checked; });
+    layerList.appendChild(row);
+  }
+
+  const env = document.getElementById('envelope');
+  const envRows = [
+    ['Overall height (feet → antenna)', OVERALL.height_total], ['Deck → antenna tip', OVERALL.height_deck_to_antenna_tip], ['Deck → keel emitter', OVERALL.depth_below_deck_to_keel_emitter], ['Deck → leg feet', OVERALL.depth_below_deck_to_leg_feet],
+    ['Plan envelope X', OVERALL.width_x_extent], ['Plan envelope Z', OVERALL.width_z_extent], ['Hub deck Ø', OVERALL.hub_deck_diameter], ['Main dome Ø / height', null, `${km(OVERALL.hub_dome_diameter)} / ${km(OVERALL.hub_dome_height)}`],
+    ['Pod deck Ø', OVERALL.pod_deck_diameter], ['Pod centre distance', OVERALL.pod_center_distance], ['Leg length / rake', null, `${km(OVERALL.leg_length)} / ${OVERALL.leg_rake_deg}°`],
+  ];
+  for (const [k, v, s] of envRows) { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = s || km(v); env.append(dt, dd); }
+  document.getElementById('scaleNote').textContent = SPEC.scale_basis.summary;
+
+  const opt = { glass: SPEC.materials.glass.opacity, wireframe: false, nebula: true, grid: false, labels: false, rotate: false };
+  const glassMat = built.materials.glass;
+  function setOption(k, v) {
+    if (k === 'glass') { const o = v == null ? SPEC.materials.glass.opacity : v; glassMat.opacity = o; glassMat.depthWrite = o >= 0.98; glassMat.transparent = o < 0.98; document.getElementById('optGlass').value = o; }
+    if (k === 'wireframe') { for (const m of Object.values(built.materials)) m.wireframe = !!v; document.getElementById('optWire').checked = !!v; }
+    if (k === 'nebula') { nebula.visible = !!v; scene.environment = v ? nebula.material.map : null; }
+    if (k === 'grid') grid.visible = !!v;
+    if (k === 'labels') { showLabels = !!v; document.getElementById('optLabels').checked = !!v; }
+    if (k === 'rotate') controls.autoRotate = !!v;
+    opt[k] = v;
+  }
+  document.getElementById('optGlass').addEventListener('input', (e) => setOption('glass', +e.target.value));
+  document.getElementById('optLabels').addEventListener('change', (e) => setOption('labels', e.target.checked));
+  document.getElementById('optWire').addEventListener('change', (e) => setOption('wireframe', e.target.checked));
+  document.getElementById('optNebula').addEventListener('change', (e) => setOption('nebula', e.target.checked));
+  document.getElementById('optGrid').addEventListener('change', (e) => setOption('grid', e.target.checked));
+  document.getElementById('optRotate').addEventListener('change', (e) => setOption('rotate', e.target.checked));
+
+  const rail = document.getElementById('rail');
+  document.getElementById('panelToggle').addEventListener('click', (e) => { rail.classList.toggle('hidden'); e.currentTarget.setAttribute('aria-pressed', String(!rail.classList.contains('hidden'))); });
+
+  // tabs
+  const panes = { schematic: document.getElementById('schematicPane'), spec: document.getElementById('specPane') };
+  document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('#tabs button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
+    for (const [k, p] of Object.entries(panes)) p.classList.toggle('active', b.dataset.tab === k);
+    const model = b.dataset.tab === 'model';
+    rail.style.display = model ? '' : 'none'; document.getElementById('hud').style.display = model ? '' : 'none'; labelLayer.style.display = model ? '' : 'none';
+    if (b.dataset.tab === 'schematic') fitSchematic();
+  }));
+  // schematic zoom
+  const wrap = document.getElementById('schematicWrap'); let zoom = 1;
+  function applyZoom() { wrap.style.transform = `scale(${zoom})`; wrap.style.width = 'max-content'; const svg = wrap.querySelector('svg'); wrap.parentElement.style.height = ''; wrap.style.height = svg ? (svg.getAttribute('height') * zoom + 32) + 'px' : ''; }
+  function fitSchematic() { const svg = wrap.querySelector('svg'); if (!svg) return; zoom = Math.min(1, (wrap.parentElement.clientWidth - 32) / +svg.getAttribute('width')); applyZoom(); }
+  document.querySelectorAll('#schematicPane .bar button').forEach((b) => b.addEventListener('click', () => { const z = b.dataset.zoom; if (z === '+') zoom *= 1.25; else if (z === '-') zoom /= 1.25; else if (z === '1') zoom = 1; else { fitSchematic(); return; } applyZoom(); }));
+  // spec pane
+  const tb = document.querySelector('#partsTable tbody');
+  for (const p of built.parts) { const tr = document.createElement('tr'); tr.innerHTML = `<td class="id">${p.id}</td><td>${p.name}</td><td class="mono">${p.qty}</td><td class="mono">${p.dims}</td>`; tb.appendChild(tr); }
+  const rb = document.querySelector('#refsTable tbody');
+  for (const r of SPEC.canonical_references) { const tr = document.createElement('tr'); tr.innerHTML = `<td class="mono">${r.id}</td><td>${r.title}</td><td>${r.note}</td>`; rb.appendChild(tr); }
+  document.getElementById('basisText').textContent = SPEC.scale_basis.summary;
+  document.getElementById('confText').textContent = SPEC.scale_basis.confidence;
+  document.getElementById('specJson').textContent = JSON.stringify(SPEC, null, 2);
+
+  // hover identification
+  const ray = new THREE.Raycaster(); const mouse = new THREE.Vector2(); let hoverPending = false, pinned = null;
+  const hudName = document.getElementById('hudName'), hudSub = document.getElementById('hudSub');
+  function describe(obj) {
+    let g = obj; while (g && !(g.userData && g.userData.id)) g = g.parent;
+    if (!g) return null;
+    return { id: g.userData.id, name: g.userData.name, dims: g.userData.dims, mesh: obj.name || '' };
+  }
+  function showHit(d) {
+    if (!d) { hudName.textContent = 'Hover a part to identify it'; hudSub.textContent = 'Click to pin · Esc to release'; return; }
+    hudName.innerHTML = `<span class="id">${d.id}</span> &nbsp;${d.name}`;
+    hudSub.textContent = (d.mesh ? d.mesh + ' · ' : '') + d.dims + (pinned ? ' · pinned' : '');
+  }
+  renderer.domElement.addEventListener('pointermove', (e) => { mouse.set((e.clientX / stage.clientWidth) * 2 - 1, -(e.clientY / stage.clientHeight) * 2 + 1); hoverPending = true; });
+  renderer.domElement.addEventListener('click', () => { if (pinned) { pinned = null; showHit(null); return; } const d = pick(); if (d) { pinned = d; showHit(d); } });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { pinned = null; showHit(null); } });
+  function pick() { ray.setFromCamera(mouse, camera); const hits = ray.intersectObject(root, true); return hits.length ? describe(hits[0].object) : null; }
+
+  // export
+  function download(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
+  function exportGLB() { return new Promise((res, rej) => new GLTFExporter().parse(root, (r) => res(r), (e) => rej(e), { binary: true, onlyVisible: false })); }
+  function exportOBJ() { return new OBJExporter().parse(root); }
+  document.getElementById('btnGLB').addEventListener('click', () => exportGLB().then((buf) => download(new Blob([buf], { type: 'model/gltf-binary' }), 'citadel_of_ricks.glb')));
+  document.getElementById('btnOBJ').addEventListener('click', () => download(new Blob([exportOBJ()], { type: 'text/plain' }), 'citadel_of_ricks.obj'));
+  document.getElementById('btnPNG').addEventListener('click', () => { renderNow(); renderer.domElement.toBlob((b) => download(b, 'citadel_of_ricks.png')); });
+
+  // ------------------------------------------------------------------- loop
+  const hudCam = document.getElementById('hudCam'), hudStats = document.getElementById('hudStats');
+  hudStats.textContent = `${built.stats.meshes.toLocaleString()} meshes · ${built.stats.triangles.toLocaleString()} tris · three r__THREE_VERSION__`;
+  function onResize() { const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+  window.addEventListener('resize', onResize);
+  function ease(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+  let frames = 0;
+  function renderNow() {
+    if (tween) { const k = Math.min(1, (performance.now() - tween.t0) / tween.dur), e = ease(k); camera.position.lerpVectors(tween.fromPos, tween.toPos, e); controls.target.lerpVectors(tween.fromT, tween.toT, e); if (k >= 1) tween = null; }
+    controls.update();
+    if (hoverPending && !pinned) { hoverPending = false; showHit(pick()); }
+    updateLabels();
+    const dist = camera.position.distanceTo(controls.target);
+    hudCam.textContent = `camera ${km(dist)} from target · alt ${km(camera.position.y)}`;
+    renderer.render(scene, camera);
+    frames++;
+  }
+  function loop() { renderNow(); requestAnimationFrame(loop); }
+
+  // start: fly in from far away to the show angle
+  const show = SPEC.views.show_angle;
+  setCamera({ ...show, distance: show.distance * 4, elevation_deg: show.elevation_deg + 20 }, false);
+  setView('show_angle');
+  document.getElementById('loading').remove();
+  loop();
+
+  window.__citadel = {
+    ready: true, views: SPEC.views, setView: (n) => { setCamera(SPEC.views[n], false); }, setCamera: (v) => setCamera(v, false), setOption, renderNow, exportGLB, exportOBJ,
+    info: () => { const b = new THREE.Box3().setFromObject(root); return { meshes: built.stats.meshes, triangles: built.stats.triangles, parts: built.parts.map((p) => `${p.id} ${p.name} ×${p.qty}`), bbox_min: b.min.toArray().map(Math.round), bbox_max: b.max.toArray().map(Math.round), size_m: b.getSize(new THREE.Vector3()).toArray().map(Math.round) }; },
+  };
+})();
+</script>
