@@ -26,32 +26,28 @@ Open **`viewer.html`** in any modern browser. It is a single self-contained file
 | `tools/bundle.py` | Inlines three.js, the geometry builder, the spec and the schematic into `viewer.html`. |
 | `tools/qc_render.js` | Playwright script: renders every view headlessly and writes the GLB/OBJ exports through the page's own exporters. |
 
-## Key numbers
+## Key numbers (spec v2)
 
 | Item | Value |
 | --- | --- |
-| Hub deck | Ø 17.0 km, 1.4 km thick |
-| Main dome | Ø 15.2 km, 5.7 km high (ellipsoid), 12 ribs |
-| Satellite districts (pods) | 3, Ø 6.6 km decks, centres 13.6 km out at 90°, 210°, 330° |
-| Bridges | 3, 1.8 km clear span, ribbed transit tube + 1.25 km wide causeway |
-| Metallic plates | 5, Ø 15.4 → 6.7 km, stacked 4.5 km deep under the deck |
-| Keel | Ø 3.9 km, cone to Ø 1.4 km, emitter 13.2 km below deck |
-| Legs | 3, 17.6 km long, 21° rake, at 30°, 150°, 270° (between the pods) |
-| Antenna | 4.3 km mast on the dome apex, tip 10.0 km above deck |
-| Overall | 30.7 km tall (leg feet to antenna tip), 34.0 km bounding circle in plan |
+| Main pod | one body of revolution: Ø 15.2 km glass dome (4.7 km high), Ø 16.7 km raised collar with 8 hangar bays, bowl hull, 5 stacked metallic plates, core and nub; 14.1 km tall overall |
+| Satellite districts | 3 copies of the main pod at 60 % (Ø 9.1 km domes), centres 15.5 km out at 90°, 210°, 330° |
+| Bridges | 3 organic ribbed tubes (Ø 2.5 → 1.8 km, 0.9 km sag, 2.6 km clear span) with a technical truss rail above |
+| Legs | 3, 23.9 km long, 31° rake, from the main pod's lower plates at 30°, 150°, 270° (between the pods) |
+| Central antenna | 12.4 km, running down the middle of the main pod, shorter than the legs |
+| Overall | 32.1 km tall (leg feet to dome top), 41.0 km bounding circle in plan |
 
-## Scale basis
+## What changed from v1 and why
 
-The show never states the Citadel's size. The only in-universe yardstick is the
-street-level material in *The Ricklantis Mixup* (S3E7): cars of ~4 m give building
-widths and tower spacing, and extrapolating that to the exterior establishing shot
-puts the central disc at roughly the size of Brooklyn (15–17 km across). The
-community 1:200 000 print model reaches the same Brooklyn-sized centre disc by the
-same route. Everything else is proportioned from the recurring exterior shot
-(S1E10, S3E1, S3E7, S5E10): central glass dome city, three smaller domed districts
-protruding from it, several metallic plates below, three legs, a single antenna.
-The shot is always the same three-quarter angle, so the underside and the legs are
-the least attested parts; they follow the wiki description and the silhouette.
+v1 was a flat disc with a hemisphere, small pods on stalks, a separate keel and
+an antenna on top. The written sources (`research.md`) describe something else:
+one *revolved* main pod with a raised band round it, three *60 %* copies of that
+pod on *sculpted, organic* bridges, three legs, and a single antenna that runs
+*down the middle* of the main pod and is *shorter than the legs*. v2 follows that
+description part for part. What could not be done is a frame-by-frame check
+against the show: this environment's network policy blocks every image host
+(the full list is in `research.md`). To get that check, commit reference stills
+into `citadel/refs/` and re-run the QC.
 
 ## Regenerating
 

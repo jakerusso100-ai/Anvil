@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the dimensioned schematic (SVG) of the Citadel of Ricks from spec.json.
+"""Generate the dimensioned schematic (SVG) of the Citadel of Ricks from spec.json (v2).
 
 Every number drawn here is read from citadel/spec.json, the same file the 3D
 viewer builds its geometry from, so the drawing and the model cannot drift
@@ -19,101 +19,103 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = json.loads((ROOT / "spec.json").read_text())
 
-# ----------------------------------------------------------------------------
-# Derived numbers (the "overall" block)
-# ----------------------------------------------------------------------------
-H, P, B, U, L = SPEC["hub"], SPEC["pods"], SPEC["bridges"], SPEC["understructure"], SPEC["legs"]
+PP, MP, SP, B, L, AN = (SPEC["pod_profile"], SPEC["main_pod"], SPEC["satellite_pods"], SPEC["bridges"], SPEC["legs"], SPEC["antenna"])
+R = MP["dome_radius"]
+Rs = R * SP["scale"]
 
-antenna_top = H["antenna"]["base_y"] + H["antenna"]["height"]
+# ----------------------------------------------------------------------------
+# Derived numbers
+# ----------------------------------------------------------------------------
+def pod_top(Rp):
+    return PP["dome"]["base_y_frac"] * Rp + PP["dome"]["height_frac"] * Rp
+
+def pod_bottom(Rp):
+    return (PP["nub"]["top_y_frac"] - PP["nub"]["height_frac"]) * Rp
+
+def collar_r(Rp):
+    return PP["collar"]["radius_frac"] * Rp
+
+def hull_r_at(Rp, y):
+    f = y / Rp
+    h = PP["hull"]
+    for (r0, y0), (r1, y1) in zip(h, h[1:]):
+        if y1 <= f <= y0:
+            u = (y0 - f) / ((y0 - y1) or 1)
+            return (r0 + (r1 - r0) * u) * Rp
+    return h[0][0] * Rp
+
+top = pod_top(R)
 foot_bottom = L["foot"]["y"] - L["foot_pad"]["thickness"]
-keel_bottom = U["keel_emitter"]["y"] - U["keel_emitter"]["radius"]
-pod_outer = P["center_distance"] + P["deck_rim_band"]["radius"]
-leg_outer = L["foot"]["ring_radius"] + L["foot_pad"]["radius"]
-overall_radius = max(pod_outer, leg_outer, H["deck_lip"]["radius"])
+antenna_tip = AN["top_y"] - AN["length"] - AN["beacon_radius"]
+bottom = min(foot_bottom, antenna_tip)
 dx = L["foot"]["ring_radius"] - L["attach"]["ring_radius"]
 dy = L["attach"]["y"] - L["foot"]["y"]
 leg_len = math.hypot(dx, dy)
 leg_rake = math.degrees(math.atan2(dx, dy))
-bridge_len = (P["center_distance"] - P["deck"]["radius"]) - H["deck"]["radius"]
+bridge_span = (SP["center_distance"] - hull_r_at(Rs, B["attach_y_satellite"])) - hull_r_at(R, B["attach_y_main"])
 
-# Widest extent in X and Z separately (pods/legs are not symmetric about both axes,
-# so take the true min..max of every outermost circle rather than doubling one side).
-def extent(axis: str) -> float:
-    lo, hi = -H["deck_lip"]["radius"], H["deck_lip"]["radius"]
-    circles = [(P["center_distance"], a, P["deck_rim_band"]["radius"]) for a in P["azimuths_deg"]]
+def extent(axis):
+    lo, hi = -collar_r(R), collar_r(R)
+    circles = [(SP["center_distance"], a, collar_r(Rs)) for a in SP["azimuths_deg"]]
     circles += [(L["foot"]["ring_radius"], a, L["foot_pad"]["radius"]) for a in L["azimuths_deg"]]
     for dist, a, r in circles:
         c = math.cos(math.radians(a)) if axis == "x" else math.sin(math.radians(a))
         lo, hi = min(lo, dist * c - r), max(hi, dist * c + r)
     return hi - lo
 
+overall_radius = max(SP["center_distance"] + collar_r(Rs), L["foot"]["ring_radius"] + L["foot_pad"]["radius"])
 OVERALL = {
     "units": "meters",
-    "height_total": antenna_top - foot_bottom,
-    "height_deck_to_antenna_tip": antenna_top,
-    "height_above_deck_incl_antenna": antenna_top,
-    "depth_below_deck_to_keel_emitter": -keel_bottom,
-    "depth_below_deck_to_leg_feet": -foot_bottom,
+    "height_total": top - bottom,
+    "main_dome_top_y": top,
+    "main_pod_bottom_y": pod_bottom(R),
+    "depth_to_leg_feet": -foot_bottom,
+    "depth_to_antenna_tip": -antenna_tip,
     "width_x_extent": extent("x"),
     "width_z_extent": extent("z"),
     "bounding_circle_diameter_plan": 2 * overall_radius,
-    "hub_deck_diameter": 2 * H["deck"]["radius"],
-    "hub_dome_diameter": 2 * H["dome"]["base_radius"],
-    "hub_dome_height": H["dome"]["height"],
-    "pod_deck_diameter": 2 * P["deck"]["radius"],
-    "pod_center_distance": P["center_distance"],
-    "bridge_clear_span": bridge_len,
+    "main_dome_diameter": 2 * R,
+    "main_dome_height": PP["dome"]["height_frac"] * R,
+    "main_collar_diameter": 2 * collar_r(R),
+    "main_pod_height": top - pod_bottom(R),
+    "satellite_dome_diameter": 2 * Rs,
+    "satellite_collar_diameter": 2 * collar_r(Rs),
+    "satellite_center_distance": SP["center_distance"],
+    "bridge_clear_span": round(bridge_span),
     "leg_length": round(leg_len),
     "leg_rake_deg": round(leg_rake, 1),
-    "antenna_height": H["antenna"]["height"],
-    "council_tower_height": H["council_tower"]["height"] + H["council_tower"]["crown_height"],
+    "antenna_length": AN["length"],
+    "council_tower_height": MP["council_tower"]["height"] + MP["council_tower"]["crown_height"],
 }
 (ROOT / "overall_dimensions.json").write_text(json.dumps(OVERALL, indent=2) + "\n")
 
 # ----------------------------------------------------------------------------
 # SVG helpers
 # ----------------------------------------------------------------------------
-INK = "#1d2330"
-DIM = "#b3412a"
-HID = "#8a94a6"
-GLASS = "#3ea99a"
-FILL = "#e9edf3"
-FILL2 = "#cfd6e0"
+INK, DIM, HID, GLASS, FILL, FILL2, CUT = "#1d2330", "#b3412a", "#8a94a6", "#3ea99a", "#e9edf3", "#cfd6e0", "#c9d1dc"
+SANS = "'Inter','Helvetica Neue',Arial,sans-serif"
+MONO = "'JetBrains Mono','Consolas',monospace"
 
-
-def fmt(v: float) -> str:
+def fmt(v):
     return f"{v:,.0f} m"
 
 
 class Sheet:
-    """One sheet of the drawing: world metres -> page px via (scale, origin)."""
+    def __init__(self, x0, y0, w, h, scale, ox, oy, title, subtitle):
+        self.x0, self.y0, self.w, self.h, self.s, self.ox, self.oy = x0, y0, w, h, scale, ox, oy
+        self.out, self.title, self.subtitle = [], title, subtitle
 
-    def __init__(self, x0, y0, w, h, scale, ox, oy, title, subtitle, flip_y=True):
-        self.x0, self.y0, self.w, self.h = x0, y0, w, h
-        self.s, self.ox, self.oy = scale, ox, oy
-        self.flip = -1 if flip_y else 1
-        self.out = []
-        self.title, self.subtitle = title, subtitle
+    def X(self, x): return self.x0 + self.ox + x * self.s
+    def Y(self, y): return self.y0 + self.oy - y * self.s
+    def add(self, s): self.out.append(s)
 
-    def X(self, x):
-        return self.x0 + self.ox + x * self.s
-
-    def Y(self, y):
-        return self.y0 + self.oy + self.flip * y * self.s
-
-    def add(self, s):
-        self.out.append(s)
-
-    # primitives -------------------------------------------------------------
     def circle(self, cx, cy, r, stroke=INK, fill="none", dash="", sw=1.6):
         d = f' stroke-dasharray="{dash}"' if dash else ""
         self.add(f'<circle cx="{self.X(cx):.1f}" cy="{self.Y(cy):.1f}" r="{r*self.s:.1f}" stroke="{stroke}" fill="{fill}" stroke-width="{sw}"{d}/>')
 
     def rect(self, x, y, w, h, stroke=INK, fill="none", dash="", sw=1.6):
-        """x,y = lower-left in world coords, w,h positive."""
         d = f' stroke-dasharray="{dash}"' if dash else ""
-        px, py = self.X(x), self.Y(y + h) if self.flip == -1 else self.Y(y)
-        self.add(f'<rect x="{px:.1f}" y="{py:.1f}" width="{w*self.s:.1f}" height="{h*self.s:.1f}" stroke="{stroke}" fill="{fill}" stroke-width="{sw}"{d}/>')
+        self.add(f'<rect x="{self.X(x):.1f}" y="{self.Y(y+h):.1f}" width="{w*self.s:.1f}" height="{h*self.s:.1f}" stroke="{stroke}" fill="{fill}" stroke-width="{sw}"{d}/>')
 
     def line(self, x1, y1, x2, y2, stroke=INK, sw=1.6, dash=""):
         d = f' stroke-dasharray="{dash}"' if dash else ""
@@ -122,55 +124,38 @@ class Sheet:
     def poly(self, pts, stroke=INK, fill="none", sw=1.6, dash="", close=True):
         d = f' stroke-dasharray="{dash}"' if dash else ""
         p = " ".join(f"{self.X(x):.1f},{self.Y(y):.1f}" for x, y in pts)
-        tag = "polygon" if close else "polyline"
-        self.add(f'<{tag} points="{p}" stroke="{stroke}" fill="{fill}" stroke-width="{sw}"{d}/>')
+        self.add(f'<{"polygon" if close else "polyline"} points="{p}" stroke="{stroke}" fill="{fill}" stroke-width="{sw}"{d}/>')
 
     def half_ellipse_up(self, cx, base_y, rx, ry, stroke=INK, fill="none", sw=1.6):
-        x1, x2 = self.X(cx - rx), self.X(cx + rx)
-        y = self.Y(base_y)
+        x1, x2, y = self.X(cx - rx), self.X(cx + rx), self.Y(base_y)
         self.add(f'<path d="M{x1:.1f},{y:.1f} A{rx*self.s:.1f},{ry*self.s:.1f} 0 0 1 {x2:.1f},{y:.1f} Z" stroke="{stroke}" fill="{fill}" stroke-width="{sw}"/>')
 
     def text(self, x, y, s, size=13, anchor="start", color=INK, weight="normal", rotate=0, mono=False):
-        fam = "'JetBrains Mono','Consolas',monospace" if mono else "'Inter','Helvetica Neue',Arial,sans-serif"
         rot = f' transform="rotate({rotate} {self.X(x):.1f} {self.Y(y):.1f})"' if rotate else ""
-        self.add(f'<text x="{self.X(x):.1f}" y="{self.Y(y):.1f}" font-size="{size}" text-anchor="{anchor}" fill="{color}" font-weight="{weight}" font-family="{fam}"{rot}>{s}</text>')
+        self.add(f'<text x="{self.X(x):.1f}" y="{self.Y(y):.1f}" font-size="{size}" text-anchor="{anchor}" fill="{color}" font-weight="{weight}" font-family="{MONO if mono else SANS}"{rot}>{s}</text>')
 
     def ptext(self, px, py, s, size=13, anchor="start", color=INK, weight="normal", mono=False):
-        """text at page pixels (relative to sheet origin)."""
-        fam = "'JetBrains Mono','Consolas',monospace" if mono else "'Inter','Helvetica Neue',Arial,sans-serif"
-        self.add(f'<text x="{self.x0+px:.1f}" y="{self.y0+py:.1f}" font-size="{size}" text-anchor="{anchor}" fill="{color}" font-weight="{weight}" font-family="{fam}">{s}</text>')
+        self.add(f'<text x="{self.x0+px:.1f}" y="{self.y0+py:.1f}" font-size="{size}" text-anchor="{anchor}" fill="{color}" font-weight="{weight}" font-family="{MONO if mono else SANS}">{s}</text>')
 
-    # dimension lines --------------------------------------------------------
-    def dim_h(self, x1, x2, y, label, off=0, above=True, label_x=None):
-        """horizontal dimension between x1..x2 drawn at world y, label centred (or at label_x)."""
+    def dim_h(self, x1, x2, y, label, above=True, label_x=None):
         X1, X2, Y = self.X(x1), self.X(x2), self.Y(y)
-        if label_x is not None:
-            self.add(f'<line x1="{X1:.1f}" y1="{Y:.1f}" x2="{X2:.1f}" y2="{Y:.1f}" stroke="{DIM}" stroke-width="1.1" marker-start="url(#arrS)" marker-end="url(#arrE)"/>')
-            ty = Y - 5 if above else Y + 15
-            self.add(f'<text x="{self.X(label_x):.1f}" y="{ty:.1f}" font-size="12" text-anchor="start" fill="{DIM}" font-family="Inter,Arial,sans-serif">{label}</text>')
-            return
         self.add(f'<line x1="{X1:.1f}" y1="{Y:.1f}" x2="{X2:.1f}" y2="{Y:.1f}" stroke="{DIM}" stroke-width="1.1" marker-start="url(#arrS)" marker-end="url(#arrE)"/>')
         ty = Y - 5 if above else Y + 15
-        self.add(f'<text x="{(X1+X2)/2:.1f}" y="{ty:.1f}" font-size="12" text-anchor="middle" fill="{DIM}" font-family="Inter,Arial,sans-serif">{label}</text>')
+        tx, anchor = ((X1 + X2) / 2, "middle") if label_x is None else (self.X(label_x), "start")
+        self.add(f'<text x="{tx:.1f}" y="{ty:.1f}" font-size="12" text-anchor="{anchor}" fill="{DIM}" font-family="{SANS}">{label}</text>')
 
     def dim_v(self, y1, y2, x, label, side=1):
         X, Y1, Y2 = self.X(x), self.Y(y1), self.Y(y2)
         self.add(f'<line x1="{X:.1f}" y1="{Y1:.1f}" x2="{X:.1f}" y2="{Y2:.1f}" stroke="{DIM}" stroke-width="1.1" marker-start="url(#arrS)" marker-end="url(#arrE)"/>')
-        tx = X + 6 * side
-        anchor = "start" if side > 0 else "end"
-        self.add(f'<text x="{tx:.1f}" y="{(Y1+Y2)/2+4:.1f}" font-size="12" text-anchor="{anchor}" fill="{DIM}" font-family="Inter,Arial,sans-serif">{label}</text>')
+        self.add(f'<text x="{X + 6*side:.1f}" y="{(Y1+Y2)/2+4:.1f}" font-size="12" text-anchor="{"start" if side > 0 else "end"}" fill="{DIM}" font-family="{SANS}">{label}</text>')
 
-    def ext(self, x1, y1, x2, y2):
-        self.line(x1, y1, x2, y2, stroke=DIM, sw=0.7)
+    def ext(self, x1, y1, x2, y2): self.line(x1, y1, x2, y2, stroke=DIM, sw=0.7)
 
     def leader(self, x, y, px, py, label, anchor="start"):
-        """leader from world point to page-relative label position."""
-        X, Y = self.X(x), self.Y(y)
-        LX, LY = self.x0 + px, self.y0 + py
+        X, Y, LX, LY = self.X(x), self.Y(y), self.x0 + px, self.y0 + py
         self.add(f'<line x1="{X:.1f}" y1="{Y:.1f}" x2="{LX:.1f}" y2="{LY:.1f}" stroke="{INK}" stroke-width="0.8"/>')
         self.add(f'<circle cx="{X:.1f}" cy="{Y:.1f}" r="2.2" fill="{INK}"/>')
-        dx = 4 if anchor == "start" else -4
-        self.add(f'<text x="{LX+dx:.1f}" y="{LY+4:.1f}" font-size="11.5" text-anchor="{anchor}" fill="{INK}" font-family="Inter,Arial,sans-serif">{label}</text>')
+        self.add(f'<text x="{LX + (4 if anchor == "start" else -4):.1f}" y="{LY+4:.1f}" font-size="11.5" text-anchor="{anchor}" fill="{INK}" font-family="{SANS}">{label}</text>')
 
     def frame(self, n):
         self.add(f'<rect x="{self.x0}" y="{self.y0}" width="{self.w}" height="{self.h}" fill="#fbfcfe" stroke="{INK}" stroke-width="2"/>')
@@ -184,373 +169,281 @@ class Sheet:
                 f'<g clip-path="url(#{cid})">' + "\n".join(self.out) + "</g>")
 
 
+# pod silhouette helpers ------------------------------------------------------
+def pod_silhouette(sh, cx, cy, Rp, fill_hull=FILL, fill_dark=FILL2, near=True, section=False):
+    """Draw a pod's elevation/section at centre (cx, cy): collar, hull, plates, core, nub, dome."""
+    C, hull, N, K = PP["collar"], PP["hull"], PP["nub"], PP["core"]
+    cr, ch, ctop = C["radius_frac"] * Rp, C["height_frac"] * Rp, C["top_y_frac"] * Rp
+    f_d = CUT if section else fill_dark
+    f_h = CUT if section else fill_hull
+    # hull (revolved profile mirrored)
+    right = [(cx + r * Rp, cy + y * Rp) for r, y in hull]
+    left = [(cx - r * Rp, cy + y * Rp) for r, y in reversed(hull)]
+    sh.poly(right + left, fill=f_h)
+    # plates
+    for r, yt, t in PP["plates"]:
+        sh.rect(cx - r * Rp, cy + (yt - t) * Rp, 2 * r * Rp, t * Rp, fill=f_d)
+    # core + nub
+    sh.rect(cx - K["radius_frac"] * Rp, cy + K["bottom_y_frac"] * Rp, 2 * K["radius_frac"] * Rp, (K["top_y_frac"] - K["bottom_y_frac"]) * Rp, fill=f_d)
+    sh.poly([(cx - N["radius_top_frac"] * Rp, cy + N["top_y_frac"] * Rp), (cx + N["radius_top_frac"] * Rp, cy + N["top_y_frac"] * Rp),
+             (cx + N["radius_bottom_frac"] * Rp, cy + (N["top_y_frac"] - N["height_frac"]) * Rp), (cx - N["radius_bottom_frac"] * Rp, cy + (N["top_y_frac"] - N["height_frac"]) * Rp)], fill=f_d)
+    # collar
+    sh.rect(cx - cr, cy + ctop - ch, 2 * cr, ch, fill=f_d)
+    # dome
+    sh.half_ellipse_up(cx, cy + PP["dome"]["base_y_frac"] * Rp, Rp, PP["dome"]["height_frac"] * Rp, stroke=GLASS, fill="none" if section else "#d9f3ee", sw=3 if section else 1.6)
+
+
 # ----------------------------------------------------------------------------
 # Sheet 1: PLAN
 # ----------------------------------------------------------------------------
 PW, PH = 1200, 1080
-plan = Sheet(20, 20, PW, PH, 1200 / 48000, PW / 2, PH / 2 + 40,
-             "PLAN VIEW (from above)", "+X to the right, +Z up the page. Azimuths counter-clockwise from +X. Legs and understructure shown hidden (dashed).")
+plan = Sheet(20, 20, PW, PH, 1200 / 60000, PW / 2, PH / 2 + 40, "PLAN VIEW (from above)",
+             "+X to the right, +Z up the page. Azimuths counter-clockwise from +X. Legs and antenna shown hidden (dashed).")
 plan.frame(1)
-
-# hidden understructure (below deck)
-for pl in U["plates"]:
-    plan.circle(0, 0, pl["radius"], stroke=HID, dash="6,5", sw=0.9)
-plan.circle(0, 0, U["core"]["radius"], stroke=HID, dash="6,5", sw=0.9)
-plan.circle(0, 0, U["keel"]["radius"], stroke=HID, dash="3,4", sw=0.9)
 for a in L["azimuths_deg"]:
     r = math.radians(a)
     ax, az = L["attach"]["ring_radius"] * math.cos(r), L["attach"]["ring_radius"] * math.sin(r)
     fx, fz = L["foot"]["ring_radius"] * math.cos(r), L["foot"]["ring_radius"] * math.sin(r)
-    plan.line(ax, az, fx, fz, stroke=HID, sw=3.2, dash="10,6")
+    plan.line(ax, az, fx, fz, stroke=HID, sw=3.4, dash="10,6")
     plan.circle(fx, fz, L["foot_pad"]["radius"], stroke=HID, dash="4,3", sw=1)
-    plan.circle(ax, az, L["knee_radius"], stroke=HID, dash="4,3", sw=1)
-    plan.text(fx * 1.09, fz * 1.09, f"LEG {L['azimuths_deg'].index(a)+1}  ({a}°)", 11, anchor="middle", color=HID)
-
-# hub
-plan.circle(0, 0, H["deck_lip"]["radius"], fill=FILL2)
-plan.circle(0, 0, H["deck"]["radius"], fill=FILL)
-plan.circle(0, 0, H["dome"]["base_radius"], stroke=GLASS, fill="#d9f3ee", sw=2)
-plan.circle(0, 0, H["dome_collar"]["ring_radius"], stroke=GLASS, sw=0.8)
-for i in range(H["dome_ribs"]["count"]):
-    r = math.radians(i * 360 / H["dome_ribs"]["count"])
-    plan.line(0, 0, H["dome"]["base_radius"] * math.cos(r), H["dome"]["base_radius"] * math.sin(r), stroke=GLASS, sw=0.5)
-plan.circle(0, 0, H["council_tower"]["radius_base"], fill="#ffffff")
-plan.circle(0, 0, H["city"]["max_radius"], stroke=HID, dash="2,3", sw=0.7)
-# hangar bays
-for i in range(H["hangar_bays"]["count"]):
-    a = math.radians(i * 360 / H["hangar_bays"]["count"] + 22.5)
-    rr = H["deck_rim_band"]["radius"]
-    w = H["hangar_bays"]["width"]
-    tx, tz = -math.sin(a), math.cos(a)
-    cx, cz = rr * math.cos(a), rr * math.sin(a)
-    plan.line(cx - tx * w / 2, cz - tz * w / 2, cx + tx * w / 2, cz + tz * w / 2, stroke=DIM, sw=3)
-
-# pods + bridges
-for i, a in enumerate(P["azimuths_deg"]):
+    plan.text(fx * 1.1, fz * 1.1, f"LEG {L['azimuths_deg'].index(a)+1} ({a}°)", 11, anchor="middle", color=HID)
+for r_, yt, t in PP["plates"]:
+    plan.circle(0, 0, r_ * R, stroke=HID, dash="5,4", sw=0.8)
+# bridges
+for i, a in enumerate(SP["azimuths_deg"]):
     r = math.radians(a)
-    cx, cz = P["center_distance"] * math.cos(r), P["center_distance"] * math.sin(r)
-    # bridge
-    x1 = H["deck"]["radius"]; x2 = P["center_distance"] - P["deck"]["radius"]
-    hw = B["causeway"]["width"] / 2
-    pts = []
-    for (u, v) in [(x1, -hw), (x2, -hw), (x2, hw), (x1, hw)]:
-        pts.append((u * math.cos(r) - v * math.sin(r), u * math.sin(r) + v * math.cos(r)))
-    plan.poly(pts, fill=FILL2)
-    plan.circle(cx, cz, P["deck_rim_band"]["radius"], fill=FILL2)
-    plan.circle(cx, cz, P["deck"]["radius"], fill=FILL)
-    plan.circle(cx, cz, P["dome"]["base_radius"], stroke=GLASS, fill="#d9f3ee", sw=2)
-    plan.circle(cx, cz, P["understructure"]["core_radius"], stroke=HID, dash="4,3", sw=0.8)
-    plan.text(cx, cz + P["deck_rim_band"]["radius"] + 900, f"POD {i+1}  ({a}°)", 12, anchor="middle", weight="700")
-
-# axes
-plan.line(-21000, 0, 21000, 0, stroke=HID, sw=0.6, dash="12,6")
-plan.line(0, -21000, 0, 21000, stroke=HID, sw=0.6, dash="12,6")
-plan.text(22000, 400, "+X", 12, color=HID)
-plan.text(400, 18300, "+Z", 12, color=HID)
-
-# dimensions
-plan.dim_h(-H["deck"]["radius"], H["deck"]["radius"], -9600, f"HUB DECK Ø {fmt(2*H['deck']['radius'])}", above=False)
-plan.dim_h(-H["dome"]["base_radius"], H["dome"]["base_radius"], 8700, f"DOME Ø {fmt(2*H['dome']['base_radius'])}", label_x=1100)
-px, pz = P["center_distance"] * math.cos(math.radians(330)), P["center_distance"] * math.sin(math.radians(330))
-plan.dim_h(px - P["deck"]["radius"], px + P["deck"]["radius"], pz - P["deck_rim_band"]["radius"] - 700, f"POD DECK Ø {fmt(2*P['deck']['radius'])}", above=False)
+    x1, x2 = hull_r_at(R, B["attach_y_main"]) - 250, SP["center_distance"] - hull_r_at(Rs, B["attach_y_satellite"]) + 250
+    hw = (B["tube_radius_main"] + B["tube_radius_satellite"]) / 2
+    pts = [(u * math.cos(r) - v * math.sin(r), u * math.sin(r) + v * math.cos(r)) for (u, v) in [(x1, -hw), (x2, -hw), (x2, hw), (x1, hw)]]
+    plan.poly(pts, fill="#d7ddd0")
+# main pod
+plan.circle(0, 0, collar_r(R), fill=FILL2)
+plan.circle(0, 0, R, stroke=GLASS, fill="#d9f3ee", sw=2)
+for i in range(PP["ribs"]["count_main"]):
+    r = math.radians(i * 360 / PP["ribs"]["count_main"])
+    plan.line(0, 0, R * math.cos(r), R * math.sin(r), stroke=GLASS, sw=0.5)
+plan.circle(0, 0, MP["council_tower"]["radius_base"], fill="#ffffff")
+for i in range(PP["hangar_bays"]["count"]):
+    a = math.radians(i * 360 / PP["hangar_bays"]["count"] + PP["hangar_bays"]["phase_deg"])
+    w, rr = PP["hangar_bays"]["width_frac"] * R, collar_r(R)
+    tx, tz = -math.sin(a), math.cos(a)
+    plan.line(rr * math.cos(a) - tx * w / 2, rr * math.sin(a) - tz * w / 2, rr * math.cos(a) + tx * w / 2, rr * math.sin(a) + tz * w / 2, stroke=DIM, sw=3)
+plan.circle(0, 0, AN["rings"][0]["radius"], stroke=HID, dash="3,3", sw=0.8)
+# satellites
+for i, a in enumerate(SP["azimuths_deg"]):
+    r = math.radians(a)
+    cx, cz = SP["center_distance"] * math.cos(r), SP["center_distance"] * math.sin(r)
+    plan.circle(cx, cz, collar_r(Rs), fill=FILL2)
+    plan.circle(cx, cz, Rs, stroke=GLASS, fill="#d9f3ee", sw=2)
+    for k in range(PP["ribs"]["count_satellite"]):
+        rr = math.radians(k * 360 / PP["ribs"]["count_satellite"])
+        plan.line(cx, cz, cx + Rs * math.cos(rr), cz + Rs * math.sin(rr), stroke=GLASS, sw=0.5)
+    plan.text(cx, cz + collar_r(Rs) + 1000, f"POD {i+1} ({a}°)", 12, anchor="middle", weight="700")
+plan.line(-26000, 0, 26000, 0, stroke=HID, sw=0.6, dash="12,6")
+plan.line(0, -26000, 0, 24000, stroke=HID, sw=0.6, dash="12,6")
+plan.text(25500, 500, "+X", 12, color=HID)
+plan.text(500, 23000, "+Z", 12, color=HID)
+plan.dim_h(-collar_r(R), collar_r(R), -collar_r(R) - 1100, f"MAIN COLLAR Ø {fmt(2*collar_r(R))}", above=False)
+plan.dim_h(-R, R, R + 1500, f"MAIN DOME Ø {fmt(2*R)}", label_x=1200)
+px, pz = SP["center_distance"] * math.cos(math.radians(330)), SP["center_distance"] * math.sin(math.radians(330))
+plan.dim_h(px - Rs, px + Rs, pz - collar_r(Rs) - 900, f"SATELLITE DOME Ø {fmt(2*Rs)}", above=False)
 plan.line(0, 0, px, pz, stroke=DIM, sw=1.1)
-plan.text(px * 0.30 - 2600, pz * 0.30 + 1500, f"CENTRE DISTANCE {fmt(P['center_distance'])}", 12, color=DIM, rotate=30)
-plan.dim_h(-overall_radius, overall_radius, 19400, f"BOUNDING CIRCLE Ø {fmt(2*overall_radius)}  (widest extent, leg feet / pod rims)")
-plan.ext(-overall_radius, 19400, -overall_radius, 0)
-plan.ext(overall_radius, 19400, overall_radius, 0)
+plan.text(px * 0.32 - 2800, pz * 0.32 + 1800, f"CENTRE DISTANCE {fmt(SP['center_distance'])}", 12, color=DIM, rotate=30)
+plan.dim_h(-overall_radius, overall_radius, 23800, f"BOUNDING CIRCLE Ø {fmt(2*overall_radius)}")
+plan.ext(-overall_radius, 23800, -overall_radius, 0); plan.ext(overall_radius, 23800, overall_radius, 0)
 plan.circle(0, 0, overall_radius, stroke=DIM, dash="2,6", sw=0.8)
-# bridge span
-bx1, bx2 = H["deck"]["radius"], P["center_distance"] - P["deck"]["radius"]
-r330 = math.radians(330)
-plan.text((bx1 + bx2) / 2 * math.cos(r330) + 2300, (bx1 + bx2) / 2 * math.sin(r330) + 300, f"BRIDGE SPAN {fmt(bridge_len)}", 11, color=DIM, rotate=30)
-# legend
-plan.ptext(18, PH - 62, "Solid = above deck plane.  Dashed grey = understructure / legs below the deck.  Orange ticks on the rim = hangar bays.", 11.5, color="#4a5568")
-plan.ptext(18, PH - 44, f"Pods every 120° at {P['azimuths_deg']}°; legs every 120° at {L['azimuths_deg']}° (offset 60°, between the pods).", 11.5, color="#4a5568")
+plan.text(px * 0.62 + 1500, pz * 0.62 + 2200, f"BRIDGE SPAN {fmt(bridge_span)}", 11, color=DIM, rotate=30)
+plan.ptext(18, PH - 62, "Solid = above the plate stack. Dashed grey = plates, legs and antenna below. Orange ticks = hangar bays in the collar.", 11.5, color="#4a5568")
+plan.ptext(18, PH - 44, f"Satellite pods every 120° at {SP['azimuths_deg']}°, {int(SP['scale']*100)} % scale; legs every 120° at {L['azimuths_deg']}° (between the pods).", 11.5, color="#4a5568")
 plan.ptext(18, PH - 26, f"Plan envelope: {fmt(OVERALL['width_x_extent'])} (X) × {fmt(OVERALL['width_z_extent'])} (Z).", 11.5, color="#4a5568")
 plan.add(f'<rect x="{plan.x0+PW-440}" y="{plan.y0+PH-100}" width="424" height="84" fill="#ffffff" stroke="{INK}" stroke-width="1.4"/>')
 plan.ptext(PW - 428, PH - 78, SPEC["name"].upper() + "  —  GENERAL ARRANGEMENT", 14, weight="700")
-plan.ptext(PW - 428, PH - 58, "Units: metres · Scale 1:1 · Up = +Y · Origin: deck centre", 11, mono=True)
+plan.ptext(PW - 428, PH - 58, "Units: metres · Scale 1:1 · Up = +Y · Origin: main pod, dome base", 11, mono=True)
 plan.ptext(PW - 428, PH - 42, f"Spec v{SPEC['version']} · tools/make_schematic.py · 4 sheets", 11, mono=True)
-plan.ptext(PW - 428, PH - 26, "Fan-made reconstruction of the show's exterior establishing shot; not official.", 10.5, color="#4a5568")
+plan.ptext(PW - 428, PH - 26, "Fan reconstruction from written descriptions of the establishing shot; not official.", 10.5, color="#4a5568")
 
 # ----------------------------------------------------------------------------
-# Sheet 2: FRONT ELEVATION  (camera at +Z looking toward -Z; X right, Y up)
+# Sheet 2: FRONT ELEVATION (camera at +Z; pod 1 nearest)
 # ----------------------------------------------------------------------------
 EW, EH = 1200, 1080
-elev = Sheet(20 + PW + 20, 20, EW, EH, 1200 / 48000, EW / 2, 352,
-             "FRONT ELEVATION", "Viewed from +Z (pod 1 nearest the viewer). X to the right, Y up. Deck top surface is y = 0.")
+elev = Sheet(20 + PW + 20, 20, EW, EH, 1200 / 62000, EW / 2, 300, "FRONT ELEVATION",
+             "Viewed from +Z (pod 1 nearest the viewer). X to the right, Y up. Main dome base plane is y = 0.")
 elev.frame(2)
-
-def pod_xz(a):
-    r = math.radians(a)
-    return P["center_distance"] * math.cos(r), P["center_distance"] * math.sin(r)
-
-# far legs first (behind), then near
+def sat_xz(a):
+    r = math.radians(a); return SP["center_distance"] * math.cos(r), SP["center_distance"] * math.sin(r)
+# far legs, far pods, main, near pod
 for a in sorted(L["azimuths_deg"], key=lambda a: math.sin(math.radians(a))):
     r = math.radians(a)
-    ax = L["attach"]["ring_radius"] * math.cos(r)
-    fx = L["foot"]["ring_radius"] * math.cos(r)
+    ax, fx = L["attach"]["ring_radius"] * math.cos(r), L["foot"]["ring_radius"] * math.cos(r)
     near = math.sin(r) > 0
-    ra, rf = L["radius_attach"], L["radius_foot"]
-    elev.poly([(ax - ra, L["attach"]["y"]), (ax + ra, L["attach"]["y"]), (fx + rf, L["foot"]["y"]), (fx - rf, L["foot"]["y"])],
-              fill=FILL2 if near else "#dfe4ec")
+    elev.poly([(ax - L["radius_attach"], L["attach"]["y"]), (ax + L["radius_attach"], L["attach"]["y"]), (fx + L["radius_foot"], L["foot"]["y"]), (fx - L["radius_foot"], L["foot"]["y"])], fill=FILL2 if near else "#dfe4ec")
     elev.circle(ax, L["attach"]["y"], L["knee_radius"], fill=FILL2)
     elev.rect(fx - L["foot_pad"]["radius"], L["foot"]["y"] - L["foot_pad"]["thickness"], 2 * L["foot_pad"]["radius"], L["foot_pad"]["thickness"], fill=FILL2)
-    # brace
-    bx = ax + (fx - ax) * L["brace"]["leg_frac"]
-    by = L["attach"]["y"] + (L["foot"]["y"] - L["attach"]["y"]) * L["brace"]["leg_frac"]
-    elev.line(bx, by, 0, L["brace"]["keel_y"], sw=2.2, stroke=HID if not near else INK)
-
-# far pods (behind hub) drawn before hub
-def draw_pod(cx, near):
-    f = FILL if near else "#e2e7ef"
-    d = P["deck"]
-    elev.rect(cx - P["deck_rim_band"]["radius"], P["deck_rim_band"]["top_y"] - P["deck_rim_band"]["height"], 2 * P["deck_rim_band"]["radius"], P["deck_rim_band"]["height"], fill=FILL2)
-    elev.rect(cx - d["radius"], -d["thickness"], 2 * d["radius"], d["thickness"], fill=f)
-    us = P["understructure"]
-    elev.rect(cx - us["core_radius"], -d["thickness"] - us["core_height"], 2 * us["core_radius"], us["core_height"], fill=FILL2)
-    for pl in us["plates"]:
-        elev.rect(cx - pl["radius"], pl["top_y"] - pl["thickness"], 2 * pl["radius"], pl["thickness"], fill=FILL2)
-    sp = us["spike"]
-    elev.poly([(cx - sp["radius"], sp["top_y"]), (cx + sp["radius"], sp["top_y"]), (cx, sp["top_y"] - sp["height"])], fill=FILL2)
-    elev.half_ellipse_up(cx, 0, P["dome"]["base_radius"], P["dome"]["height"], stroke=GLASS, fill="#d9f3ee")
-
-for a in P["azimuths_deg"]:
-    cx, cz = pod_xz(a)
+    bx = ax + (fx - ax) * L["brace"]["leg_frac"]; by = L["attach"]["y"] + (L["foot"]["y"] - L["attach"]["y"]) * L["brace"]["leg_frac"]
+    elev.line(bx, by, math.cos(r) * PP["core"]["radius_frac"] * R, L["brace"]["core_y"], sw=2, stroke=INK if near else HID)
+for a in SP["azimuths_deg"]:
+    cx, cz = sat_xz(a)
     if cz <= 0:
-        draw_pod(cx, False)
-        # bridge (seen obliquely; draw as bar from hub edge to pod edge)
-        sx = H["deck"]["radius"] * math.copysign(1, cx)
-        ex = cx - P["deck"]["radius"] * math.copysign(1, cx)
-        elev.rect(min(sx, ex), -B["causeway"]["thickness"], abs(ex - sx), B["causeway"]["thickness"], fill=FILL2)
-        elev.rect(min(sx, ex), B["tube"]["y"] - B["tube"]["radius_hub"], abs(ex - sx), 2 * B["tube"]["radius_hub"], fill="#d2d9c9")
-
-# understructure (hub)
-uc = U["core"]
-elev.rect(-uc["radius"], uc["top_y"] - uc["height"], 2 * uc["radius"], uc["height"], fill=FILL2)
-for pl in U["plates"]:
-    elev.rect(-pl["radius"], pl["top_y"] - pl["thickness"], 2 * pl["radius"], pl["thickness"], fill=FILL2)
-mb = U["machinery_blocks"]
-for i in range(mb["count"]):
-    a = math.radians(i * 360 / mb["count"] + 30)
-    cx = mb["ring_radius"] * math.cos(a)
-    elev.rect(cx - mb["width"] / 2, mb["top_y"] - mb["height"], mb["width"], mb["height"], fill="#dfe4ec", sw=0.8)
-k = U["keel"]
-elev.rect(-k["radius"], k["top_y"] - k["height"], 2 * k["radius"], k["height"], fill=FILL2)
-kc = U["keel_cone"]
-elev.poly([(-kc["radius_top"], kc["top_y"]), (kc["radius_top"], kc["top_y"]), (kc["radius_bottom"], kc["top_y"] - kc["height"]), (-kc["radius_bottom"], kc["top_y"] - kc["height"])], fill=FILL2)
-elev.circle(0, U["keel_emitter"]["y"], U["keel_emitter"]["radius"], fill="#dff6ff")
-
-# hub deck, rim, dome
-elev.rect(-H["deck_rim_band"]["radius"], H["deck_rim_band"]["top_y"] - H["deck_rim_band"]["height"], 2 * H["deck_rim_band"]["radius"], H["deck_rim_band"]["height"], fill=FILL2)
-elev.rect(-H["deck_lip"]["radius"], H["deck_lip"]["top_y"] - H["deck_lip"]["height"], 2 * H["deck_lip"]["radius"], H["deck_lip"]["height"], fill=FILL2)
-elev.rect(-H["deck"]["radius"], -H["deck"]["thickness"], 2 * H["deck"]["radius"], H["deck"]["thickness"], fill=FILL)
-elev.half_ellipse_up(0, 0, H["dome"]["base_radius"], H["dome"]["height"], stroke=GLASS, fill="#d9f3ee")
-# skyline hint (deterministic sample of towers) and council tower
-ct = H["council_tower"]
-elev.poly([(-ct["radius_base"], 0), (ct["radius_base"], 0), (ct["radius_top"], ct["height"]), (-ct["radius_top"], ct["height"])], fill="#ffffff")
-elev.poly([(-ct["radius_top"], ct["height"]), (ct["radius_top"], ct["height"]), (0, ct["height"] + ct["crown_height"])], fill="#ffffff")
+        pod_silhouette(elev, cx, SP["y_offset"], Rs, fill_hull="#e2e7ef", fill_dark="#d3d9e3")
+        sx = math.copysign(hull_r_at(R, B["attach_y_main"]), cx); ex = cx - math.copysign(hull_r_at(Rs, B["attach_y_satellite"]), cx)
+        elev.rect(min(sx, ex), B["attach_y_main"] - B["tube_radius_main"] - B["sag"] / 2, abs(ex - sx), 2 * B["tube_radius_main"], fill="#d7ddd0")
+# antenna (behind main pod's nub, in front of far things)
+aTop, aBot = AN["top_y"], AN["top_y"] - AN["length"]
+elev.poly([(-AN["radius_top"], aTop), (AN["radius_top"], aTop), (AN["radius_tip"], aBot), (-AN["radius_tip"], aBot)], fill=INK)
+for rg in AN["rings"]:
+    y = aTop - AN["length"] * rg["y_frac"]; elev.line(-rg["radius"], y, rg["radius"], y, sw=2)
+y = aTop - AN["length"] * AN["dish"]["y_frac"]
+elev.poly([(-AN["dish"]["radius"], y - AN["dish"]["depth"]), (0, y), (AN["dish"]["radius"], y - AN["dish"]["depth"])], fill="none", sw=1.4, close=False)
+elev.circle(0, aBot, AN["beacon_radius"] * 2, fill="#dff6ff")
+pod_silhouette(elev, 0, 0, R)
+# council spire
+ct = MP["council_tower"]; cy0 = PP["dome"]["base_y_frac"] * R
+elev.poly([(-ct["radius_base"], cy0), (ct["radius_base"], cy0), (ct["radius_top"], cy0 + ct["height"]), (-ct["radius_top"], cy0 + ct["height"])], fill="#ffffff")
+elev.poly([(-ct["radius_top"], cy0 + ct["height"]), (ct["radius_top"], cy0 + ct["height"]), (0, cy0 + ct["height"] + ct["crown_height"])], fill="#ffffff")
 for i in range(-9, 10):
-    if i == 0:
-        continue
+    if i == 0: continue
     x = i * 700
-    hmax = H["dome"]["height"] * math.sqrt(max(0.0, 1 - (x / H["dome"]["base_radius"]) ** 2)) - 400
-    hgt = min(hmax, H["city"]["height_min"] + (H["city"]["height_max"] - H["city"]["height_min"]) * (1 - abs(i) / 10))
-    elev.rect(x - 180, 0, 360, max(hgt, 200), fill="#ffffff", sw=0.8)
-# antenna
-an = H["antenna"]
-elev.poly([(-an["radius_base"], an["base_y"]), (an["radius_base"], an["base_y"]), (an["radius_top"], antenna_top), (-an["radius_top"], antenna_top)], fill=INK)
-for rg in an["rings"]:
-    y = an["base_y"] + an["height"] * rg["y_frac"]
-    elev.line(-rg["radius"], y, rg["radius"], y, sw=2)
-dsh = an["dish"]
-y = an["base_y"] + an["height"] * dsh["y_frac"]
-elev.poly([(-dsh["radius"], y + dsh["depth"]), (0, y), (dsh["radius"], y + dsh["depth"])], fill="none", sw=1.4, close=False)
-elev.circle(0, antenna_top, an["beacon_radius"] * 2, fill="#dff6ff")
-
-# near pod (in front of hub)
-for a in P["azimuths_deg"]:
-    cx, cz = pod_xz(a)
+    hmax = PP["dome"]["height_frac"] * R * math.sqrt(max(0.0, 1 - (x / R) ** 2)) - 400
+    hgt = min(hmax, MP["city"]["height_min"] + (MP["city"]["height_max"] - MP["city"]["height_min"]) * (1 - abs(i) / 10))
+    elev.rect(x - 180, cy0, 360, max(hgt, 200), fill="#ffffff", sw=0.8)
+for a in SP["azimuths_deg"]:
+    cx, cz = sat_xz(a)
     if cz > 0:
-        draw_pod(cx, True)
-        elev.text(cx, -P["deck"]["thickness"] - P["understructure"]["core_height"] - 5200, f"POD {P['azimuths_deg'].index(a)+1} (nearest)", 11, anchor="middle")
-
-# ground line / datum
-elev.line(-21000, 0, 21000, 0, stroke=DIM, sw=0.7, dash="8,5")
-elev.text(-20800, 250, "DATUM y = 0 (hub deck surface)", 11, color=DIM)
-
-# dimensions (vertical, right side)
-xr = 16800
-elev.dim_v(0, antenna_top, xr, f"{fmt(antenna_top)} deck→antenna")
-elev.ext(0, antenna_top, xr, antenna_top)
-elev.dim_v(0, H["dome"]["height"], -9300, f"DOME {fmt(H['dome']['height'])}", side=-1)
-elev.ext(-H["dome"]["base_radius"] * 0.2, H["dome"]["height"], -9300, H["dome"]["height"])
-elev.dim_v(-H["deck"]["thickness"], 0, 9600, f"DECK {fmt(H['deck']['thickness'])}", side=1)
-ps_top, ps_bot = -H["deck"]["thickness"], U["plates"][-1]["top_y"] - U["plates"][-1]["thickness"]
-elev.dim_v(ps_bot, ps_top, 9600, f"PLATES {fmt(ps_top - ps_bot)}", side=1)
-elev.ext(U["plates"][-1]["radius"], ps_bot, 9600, ps_bot)
-elev.dim_v(keel_bottom, 0, xr - 2600, f"{fmt(-keel_bottom)} deck→keel", side=1)
-elev.ext(0, keel_bottom, xr - 2600, keel_bottom)
-elev.dim_v(foot_bottom, 0, -xr - 2400, f"{fmt(-foot_bottom)} deck→feet", side=-1)
-elev.ext(-L["foot"]["ring_radius"] * math.cos(math.radians(30)), foot_bottom, -xr - 2400, foot_bottom)
-elev.dim_v(foot_bottom, antenna_top, -xr + 800, f"{fmt(OVERALL['height_total'])} OVERALL", side=-1)
-elev.dim_h(-H["deck"]["radius"], H["deck"]["radius"], antenna_top + 700, f"HUB DECK Ø {fmt(2*H['deck']['radius'])}", label_x=-H["deck"]["radius"] + 600)
-elev.ext(-H["deck"]["radius"], 0, -H["deck"]["radius"], antenna_top + 700)
-elev.ext(H["deck"]["radius"], 0, H["deck"]["radius"], antenna_top + 700)
-elev.dim_h(-OVERALL["width_x_extent"] / 2, OVERALL["width_x_extent"] / 2, foot_bottom - 1400, f"X EXTENT {fmt(OVERALL['width_x_extent'])}", above=False)
-elev.leader(0, an["base_y"] + an["height"] * 0.5, EW / 2 + 120, 75, f"Antenna: {fmt(an['height'])} tall, Ø {2*an['radius_base']} → {2*an['radius_top']} m")
-elev.leader(ct["radius_top"], ct["height"], EW / 2 + 150, 140, f"Council spire {fmt(OVERALL['council_tower_height'])}")
+        pod_silhouette(elev, cx, SP["y_offset"], Rs)
+        elev.text(cx, pod_bottom(Rs) - 1400, "POD 1 (nearest)", 11, anchor="middle")
+elev.line(-28000, 0, 28000, 0, stroke=DIM, sw=0.7, dash="8,5")
+elev.text(-27800, 350, "DATUM y = 0 (main dome base)", 11, color=DIM)
+xr = 21500
+elev.dim_v(0, top, xr, f"{fmt(top)} dome top", side=1); elev.ext(0, top, xr, top)
+elev.dim_v(pod_bottom(R), 0, xr, f"{fmt(-pod_bottom(R))} main pod below datum", side=1); elev.ext(PP["nub"]["radius_bottom_frac"] * R, pod_bottom(R), xr, pod_bottom(R))
+elev.dim_v(antenna_tip, 0, xr + 3200, f"{fmt(-antenna_tip)} antenna tip", side=1); elev.ext(0, antenna_tip, xr + 3200, antenna_tip)
+elev.dim_v(foot_bottom, 0, -xr - 3200, f"{fmt(-foot_bottom)} leg feet", side=-1); elev.ext(-L["foot"]["ring_radius"] * math.cos(math.radians(30)), foot_bottom, -xr - 3200, foot_bottom)
+elev.dim_v(bottom, top, -xr + 400, f"{fmt(OVERALL['height_total'])} OVERALL", side=-1)
+elev.dim_v(0, PP["dome"]["height_frac"] * R, -collar_r(R) - 1600, f"DOME {fmt(PP['dome']['height_frac']*R)}", side=-1)
+elev.dim_h(-collar_r(R), collar_r(R), top + 1200, f"MAIN COLLAR Ø {fmt(2*collar_r(R))}", label_x=-collar_r(R) + 600)
+elev.ext(-collar_r(R), PP["collar"]["top_y_frac"] * R, -collar_r(R), top + 1200); elev.ext(collar_r(R), PP["collar"]["top_y_frac"] * R, collar_r(R), top + 1200)
+elev.dim_h(-OVERALL["width_x_extent"] / 2, OVERALL["width_x_extent"] / 2, foot_bottom - 1600, f"X EXTENT {fmt(OVERALL['width_x_extent'])}", above=False)
+elev.leader(0, aTop - AN["length"] * 0.6, EW / 2 + 180, EH - 200, f"Antenna: {fmt(AN['length'])} down the centre, Ø {2*AN['radius_top']} → {2*AN['radius_tip']} m, shorter than the legs")
+elev.leader(ct["radius_top"], cy0 + ct["height"], EW / 2 + 150, 90, f"Council spire {fmt(OVERALL['council_tower_height'])}")
 fxn = L["foot"]["ring_radius"] * math.cos(math.radians(30))
-elev.leader(fxn * 0.55 + 2000, L["attach"]["y"] + (L["foot"]["y"] - L["attach"]["y"]) * 0.5, EW - 470, EH - 120, f"Leg: {fmt(leg_len)} long, rake {leg_rake:.0f}°, Ø {2*L['radius_attach']} → {2*L['radius_foot']} m", anchor="start")
-elev.ptext(18, EH - 26, "Pods 2 and 3 sit behind the hub in this view; their bridges are foreshortened. Leg 3 (270°) is directly behind the keel.", 11.5, color="#4a5568")
+elev.leader(fxn * 0.5 + 1600, L["attach"]["y"] + (L["foot"]["y"] - L["attach"]["y"]) * 0.5, EW - 470, EH - 110, f"Leg: {fmt(leg_len)}, rake {leg_rake:.0f}°, Ø {2*L['radius_attach']} → {2*L['radius_foot']} m")
+elev.leader(collar_r(R), PP["collar"]["top_y_frac"] * R - PP["collar"]["height_frac"] * R / 2, EW - 300, 150, f"Raised collar {fmt(PP['collar']['height_frac']*R)} tall")
+elev.leader(PP["plates"][2][0] * R, PP["plates"][2][1] * R, EW - 300, 190, f"{len(PP['plates'])} metallic plates")
+elev.ptext(18, EH - 26, "Pods 2 and 3 sit behind the main pod in this view; their bridges are foreshortened. Leg 3 (270°) is directly behind the antenna.", 11.5, color="#4a5568")
 
 # ----------------------------------------------------------------------------
-# Sheet 3: HUB SECTION + LEG DETAIL  (section on the X–Y plane through the centre)
+# Sheet 3: MAIN POD SECTION + PROFILE TABLE
 # ----------------------------------------------------------------------------
 SW_, SH_ = 1200, 1000
-sec = Sheet(20, 20 + PH + 20, SW_, SH_, 1200 / 34000, 560, 330,
-            "HUB SECTION A–A and LEG DETAIL", "Vertical section through the hub on the X–Y plane. Solid = cut material. Dome shell, rim band, plate stack, pipes, keel and emitter dimensioned.")
+sec = Sheet(20, 20 + PH + 20, SW_, SH_, 1200 / 36000, 520, 330, "MAIN POD SECTION A–A and PROFILE",
+            "Vertical section through the main pod on the X–Y plane. Solid = cut material. The same profile at 60 % is each satellite pod.")
 sec.frame(3)
-# section fill
-sec.rect(-H["deck"]["radius"], -H["deck"]["thickness"], 2 * H["deck"]["radius"], H["deck"]["thickness"], fill="#c9d1dc")
-sec.rect(-H["deck_rim_band"]["radius"], H["deck_rim_band"]["top_y"] - H["deck_rim_band"]["height"], 2 * H["deck_rim_band"]["radius"], H["deck_rim_band"]["height"], fill="#b9c2cf")
-# hangar mouth cut on right rim
-hb = H["hangar_bays"]
-sec.rect(H["deck_rim_band"]["radius"] - hb["depth"], hb["y"] - hb["height"] / 2, hb["depth"], hb["height"], fill="#f7c59f", stroke=DIM)
-sec.rect(-uc["radius"], uc["top_y"] - uc["height"], 2 * uc["radius"], uc["height"], fill="#c9d1dc")
-for pl in U["plates"]:
-    sec.rect(-pl["radius"], pl["top_y"] - pl["thickness"], 2 * pl["radius"], pl["thickness"], fill="#b9c2cf")
-pp = U["pipes"]
-for sgn in (-1, 1):
-    sec.rect(sgn * pp["ring_radius"] - pp["radius"], pp["bottom_y"], 2 * pp["radius"], pp["top_y"] - pp["bottom_y"], fill="#98a3b3")
-sec.rect(-k["radius"], k["top_y"] - k["height"], 2 * k["radius"], k["height"], fill="#c9d1dc")
-sec.poly([(-kc["radius_top"], kc["top_y"]), (kc["radius_top"], kc["top_y"]), (kc["radius_bottom"], kc["top_y"] - kc["height"]), (-kc["radius_bottom"], kc["top_y"] - kc["height"])], fill="#c9d1dc")
-sec.circle(0, U["keel_emitter"]["y"], U["keel_emitter"]["radius"], fill="#dff6ff")
-# dome shell as an arc (thin)
-sec.half_ellipse_up(0, 0, H["dome"]["base_radius"], H["dome"]["height"], stroke=GLASS, fill="none", sw=3)
-sec.circle(-H["dome_collar"]["ring_radius"], H["dome_collar"]["y"], H["dome_collar"]["tube_radius"], fill="#b9c2cf")
-sec.circle(H["dome_collar"]["ring_radius"], H["dome_collar"]["y"], H["dome_collar"]["tube_radius"], fill="#b9c2cf")
-sec.poly([(-ct["radius_base"], 0), (ct["radius_base"], 0), (ct["radius_top"], ct["height"]), (-ct["radius_top"], ct["height"])], fill="#ffffff")
-sec.line(-9000, 0, 9500, 0, stroke=DIM, sw=0.7, dash="8,5")
-
-# plate labels
-for i, pl in enumerate(U["plates"]):
-    sec.leader(pl["radius"], pl["top_y"] - pl["thickness"] / 2, 930, 300 + i * 26,
-               f"Plate {i+1}: R {pl['radius']:,} m, t {pl['thickness']} m, top y {pl['top_y']:,}")
-sec.leader(uc["radius"], uc["top_y"] - uc["height"] * 0.55, 930, 300 + 5 * 26, f"Core: R {uc['radius']:,} m, {uc['height']:,} m tall")
-sec.leader(pp["ring_radius"], (pp["top_y"] + pp["bottom_y"]) / 2, 930, 300 + 6 * 26, f"Pipes ×{pp['count']}: Ø {2*pp['radius']} m on R {pp['ring_radius']:,} m")
-sec.leader(k["radius"], k["top_y"] - k["height"] / 2, 930, 300 + 7 * 26, f"Keel: R {k['radius']:,} m, {k['height']:,} m tall")
-sec.leader(kc["radius_bottom"], kc["top_y"] - kc["height"], 930, 300 + 8 * 26, f"Keel cone: R {kc['radius_top']:,} → {kc['radius_bottom']} m over {kc['height']:,} m")
-sec.leader(U["keel_emitter"]["radius"], U["keel_emitter"]["y"], 930, 300 + 9 * 26, f"Emitter sphere: R {U['keel_emitter']['radius']} m at y {U['keel_emitter']['y']:,}")
-sec.leader(H["deck_rim_band"]["radius"], hb["y"], 930, 300 + 10 * 26, f"Hangar bays ×{hb['count']}: {hb['width']:,} × {hb['height']} m, {hb['depth']} m deep")
-sec.leader(H["dome"]["base_radius"] * 0.7, H["dome"]["height"] * 0.72, 930, 300 + 11 * 26, f"Dome: ellipsoid R {H['dome']['base_radius']:,} m, h {H['dome']['height']:,} m, {H['dome_ribs']['count']} ribs")
-sec.leader(H["dome_collar"]["ring_radius"], H["dome_collar"]["y"], 930, 300 + 12 * 26, f"Dome collar: torus R {H['dome_collar']['ring_radius']:,} m, tube Ø {2*H['dome_collar']['tube_radius']} m")
-sec.leader(H["deck_rim_band"]["radius"], H["deck_rim_band"]["top_y"] - H["deck_rim_band"]["height"] / 2 - 200, 930, 300 + 13 * 26, f"Rim band: R {H['deck_rim_band']['radius']:,} m, h {H['deck_rim_band']['height']} m (orange light band)")
-
-sec.dim_v(0, H["dome"]["height"], -10200, f"{fmt(H['dome']['height'])}", side=-1)
-sec.dim_v(-H["deck"]["thickness"], 0, -10200, f"{fmt(H['deck']['thickness'])}", side=-1)
-sec.dim_v(keel_bottom, -H["deck"]["thickness"], -9200, f"{fmt(-H['deck']['thickness'] - keel_bottom)} below deck", side=-1)
-sec.dim_h(-H["deck"]["radius"], H["deck"]["radius"], H["dome"]["height"] + 600, f"HUB DECK Ø {fmt(2*H['deck']['radius'])}")
-
-# leg detail inset (page-relative at lower-left)
-leg = Sheet(sec.x0 + 715, sec.y0 + 660, 470, 330, 470 / 40000, 30, 22, "", "")
-leg.add(f'<rect x="{leg.x0}" y="{leg.y0}" width="{leg.w}" height="{leg.h}" fill="#f2f5f9" stroke="{INK}" stroke-width="1"/>')
-leg.ptext(10, 20, "DETAIL B — LEG (one of three, in its own vertical plane)", 12, weight="700")
-ax0, fx0 = L["attach"]["ring_radius"], L["foot"]["ring_radius"]
-leg.poly([(ax0 - L["radius_attach"], L["attach"]["y"]), (ax0 + L["radius_attach"], L["attach"]["y"]), (fx0 + L["radius_foot"], L["foot"]["y"]), (fx0 - L["radius_foot"], L["foot"]["y"])], fill=FILL2)
-leg.circle(ax0, L["attach"]["y"], L["knee_radius"], fill=FILL2)
-leg.rect(fx0 - L["foot_pad"]["radius"], L["foot"]["y"] - L["foot_pad"]["thickness"], 2 * L["foot_pad"]["radius"], L["foot_pad"]["thickness"], fill=FILL2)
-bx = ax0 + (fx0 - ax0) * L["brace"]["leg_frac"]
-by = L["attach"]["y"] + (L["foot"]["y"] - L["attach"]["y"]) * L["brace"]["leg_frac"]
-leg.line(bx, by, k["radius"], L["brace"]["keel_y"], sw=2)
-leg.rect(0, k["top_y"] - k["height"], k["radius"], k["height"], fill="#c9d1dc")
-leg.line(0, 0, 0, L["foot"]["y"] - 1500, stroke=HID, sw=0.7, dash="6,4")
-leg.line(-500, L["attach"]["y"], 13000, L["attach"]["y"], stroke=DIM, sw=0.6, dash="4,3")
-leg.dim_h(ax0, fx0, L["foot"]["y"] - 1100, f"ΔR {fmt(fx0-ax0)}", above=False)
-leg.dim_v(L["foot"]["y"], L["attach"]["y"], fx0 + 2200, f"ΔY {fmt(L['attach']['y']-L['foot']['y'])}")
-leg.leader(ax0, L["attach"]["y"], 250, 60, f"Knee R {L['knee_radius']} m at R {ax0:,}, y {L['attach']['y']:,}")
-leg.leader(fx0, L["foot"]["y"], 250, 80, f"Foot pad R {L['foot_pad']['radius']} m at R {fx0:,}, y {L['foot']['y']:,}")
-leg.leader(bx, by, 250, 100, f"Brace Ø {2*L['brace']['radius']} m to keel at y {L['brace']['keel_y']:,}")
-leg.ptext(10, 320, f"Leg length {fmt(leg_len)}   rake {leg_rake:.1f}° from vertical   Ø {2*L['radius_attach']} → {2*L['radius_foot']} m", 11.5, mono=True)
+pod_silhouette(sec, 0, 0, R, section=True)
+sec.poly([(-ct["radius_base"], cy0), (ct["radius_base"], cy0), (ct["radius_top"], cy0 + ct["height"]), (-ct["radius_top"], cy0 + ct["height"])], fill="#ffffff")
+sec.rect(collar_r(R) - PP["hangar_bays"]["depth_frac"] * R, PP["hangar_bays"]["y_frac"] * R - PP["hangar_bays"]["height_frac"] * R / 2, PP["hangar_bays"]["depth_frac"] * R, PP["hangar_bays"]["height_frac"] * R, fill="#f7c59f", stroke=DIM)
+sec.line(-12000, 0, 12000, 0, stroke=DIM, sw=0.7, dash="8,5")
+# antenna stub
+sec.poly([(-AN["radius_top"], aTop), (AN["radius_top"], aTop), (AN["radius_top"] * 0.9, aTop - 1500), (-AN["radius_top"] * 0.9, aTop - 1500)], fill=INK)
+rows = [
+    (f"Dome: ellipsoid R {R:,} m, h {PP['dome']['height_frac']*R:,.0f} m, {PP['ribs']['count_main']} ribs", R * 0.7, PP['dome']['height_frac'] * R * 0.72),
+    (f"Collar: R {collar_r(R):,.0f} m, h {PP['collar']['height_frac']*R:,.0f} m, light band + {PP['hangar_bays']['count']} hangar bays", collar_r(R), (PP['collar']['top_y_frac'] - PP['collar']['height_frac'] / 2) * R),
+]
+for k, (r, y) in enumerate(PP["hull"][1:6], 1):
+    rows.append((f"Hull point {k}: R {r*R:,.0f} m at y {y*R:,.0f} m", r * R, y * R))
+for k, (r, yt, t) in enumerate(PP["plates"], 1):
+    rows.append((f"Plate {k}: R {r*R:,.0f} m, t {t*R:,.0f} m, top y {yt*R:,.0f} m", r * R, (yt - t / 2) * R))
+rows.append((f"Core: R {PP['core']['radius_frac']*R:,.0f} m, y {PP['core']['top_y_frac']*R:,.0f} to {PP['core']['bottom_y_frac']*R:,.0f} m", PP['core']['radius_frac'] * R, (PP['core']['top_y_frac'] + PP['core']['bottom_y_frac']) / 2 * R))
+rows.append((f"Nub: R {PP['nub']['radius_top_frac']*R:,.0f} → {PP['nub']['radius_bottom_frac']*R:,.0f} m, bottom y {pod_bottom(R):,.0f} m", PP['nub']['radius_bottom_frac'] * R, pod_bottom(R)))
+rows.append((f"Antenna root at y {AN['top_y']:,} m (runs {AN['length']:,} m down)", AN["radius_top"], aTop - 800))
+for i, (label, x, y) in enumerate(rows):
+    sec.leader(x, y, 880, 90 + i * 24, label)
+sec.dim_v(0, PP["dome"]["height_frac"] * R, -10500, f"{fmt(PP['dome']['height_frac']*R)}", side=-1)
+sec.dim_v(pod_bottom(R), 0, -10500, f"{fmt(-pod_bottom(R))} hull + plates", side=-1)
+sec.dim_h(-collar_r(R), collar_r(R), PP["dome"]["height_frac"] * R + 900, f"COLLAR Ø {fmt(2*collar_r(R))}")
+sec.dim_h(-R, R, -pod_bottom(R) * 0 + PP["dome"]["height_frac"] * R + 300, f"DOME Ø {fmt(2*R)}")
+# satellite mini-silhouette for scale comparison
+sec.ptext(30, SH_ - 340, "SATELLITE POD (60 %) at the same scale, for comparison:", 11.5, weight="700")
+mini = Sheet(sec.x0, sec.y0, SW_, SH_, sec.s, 190, SH_ - 215, "", "")
+pod_silhouette(mini, 0, 0, Rs)
+mini.dim_h(-collar_r(Rs), collar_r(Rs), pod_bottom(Rs) - 900, f"Ø {fmt(2*collar_r(Rs))}", above=False)
+mini.dim_v(pod_bottom(Rs), pod_top(Rs), collar_r(Rs) + 900, f"{fmt(pod_top(Rs)-pod_bottom(Rs))}")
 
 # ----------------------------------------------------------------------------
-# Sheet 4: PARTS TABLE + TITLE BLOCK
+# Sheet 4: PARTS, ENVELOPE, BASIS, REFERENCES, DIALOGUE
 # ----------------------------------------------------------------------------
 TW, TH = 1200, 1000
-tab = Sheet(20 + PW + 20, 20 + PH + 20, TW, TH, 1, 0, 0, "PARTS LIST, ENVELOPE AND SCALE BASIS", "IDs match the layer names in the 3D viewer (spec.json is the single source of truth).")
+tab = Sheet(20 + PW + 20, 20 + PH + 20, TW, TH, 1, 0, 0, "PARTS LIST, ENVELOPE AND SOURCES", "IDs match the layer names in the 3D viewer (spec.json is the single source of truth).")
 tab.frame(4)
-
 parts = [
-    ("H-01", "Hub deck", 1, f"Ø {2*H['deck']['radius']:,} × {H['deck']['thickness']:,} thick", "hull_light / hull", "0 to −1,400"),
-    ("H-02", "Deck rim band + lip", 1, f"Ø {2*H['deck_rim_band']['radius']:,} × {H['deck_rim_band']['height']} ; lip Ø {2*H['deck_lip']['radius']:,}", "hull / rim_light", "−200 to −950"),
-    ("H-03", "Hangar bays", H["hangar_bays"]["count"], f"{H['hangar_bays']['width']:,} × {H['hangar_bays']['height']} × {H['hangar_bays']['depth']} deep", "trim / rim_light", str(H["hangar_bays"]["y"])),
-    ("H-04", "Main dome (glass)", 1, f"ellipsoid Ø {2*H['dome']['base_radius']:,} × h {H['dome']['height']:,}", "glass", f"0 to {H['dome']['height']:,}"),
-    ("H-05", "Dome collar + ribs", 1, f"torus R {H['dome_collar']['ring_radius']:,}; {H['dome_ribs']['count']} ribs Ø {2*H['dome_ribs']['tube_radius']}", "hull_light", "≈0"),
-    ("H-06", "Council spire", 1, f"Ø {2*ct['radius_base']:,} → {2*ct['radius_top']} , h {OVERALL['council_tower_height']:,}", "city / city_glow", f"0 to {OVERALL['council_tower_height']:,}"),
-    ("H-07", "Hub city towers", H["city"]["tower_count"], f"{H['city']['footprint_min']}–{H['city']['footprint_max']} footprint, {H['city']['height_min']}–{H['city']['height_max']:,} tall (seed {H['city']['seed']})", "city / city_glow", f"0 to ≤{H['city']['height_max']:,}"),
-    ("H-08", "Hub low-rise blocks", H["city"]["lowrise_count"], f"{H['city']['lowrise_height_min']}–{H['city']['lowrise_height_max']} tall", "city", "0 to 360"),
-    ("H-09", "Antenna mast", 1, f"h {an['height']:,}, Ø {2*an['radius_base']} → {2*an['radius_top']}; 3 rings, 1 dish, beacon R {an['beacon_radius']}", "hull_dark / beacon", f"{an['base_y']:,} to {antenna_top:,}"),
-    ("P-01", "Pod deck", 3, f"Ø {2*P['deck']['radius']:,} × {P['deck']['thickness']} thick; rim Ø {2*P['deck_rim_band']['radius']:,}", "hull_light / hull", f"0 to −{P['deck']['thickness']}"),
-    ("P-02", "Pod dome (glass)", 3, f"ellipsoid Ø {2*P['dome']['base_radius']:,} × h {P['dome']['height']:,}", "glass", f"0 to {P['dome']['height']:,}"),
-    ("P-03", "Pod city", 3, f"{P['city']['tower_count']} towers + {P['city']['lowrise_count']} low-rise per pod", "city / city_glow", f"0 to ≤{P['city']['height_max']:,}"),
-    ("P-04", "Pod understructure", 3, f"core R {P['understructure']['core_radius']:,}; 2 plates; spike h {P['understructure']['spike']['height']:,}", "hull_dark", f"−{P['deck']['thickness']} to {P['understructure']['spike']['top_y']-P['understructure']['spike']['height']:,}"),
-    ("B-01", "Bridge tube (transit)", 3, f"Ø {2*B['tube']['radius_hub']} → {2*B['tube']['radius_pod']}, span {bridge_len:,}, {B['tube']['rib_count']} ribs", "bridge_tube", str(B["tube"]["y"])),
-    ("B-02", "Bridge causeway + rails", 3, f"{B['causeway']['width']:,} wide × {B['causeway']['thickness']} thick", "hull_light / trim", "0"),
-    ("B-03", "Bridge struts", 3 * B["struts"]["count"], f"Ø {2*B['struts']['radius']}, spread {B['struts']['spread']}", "hull_dark", "below tube"),
-    ("U-01", "Understructure core", 1, f"Ø {2*uc['radius']:,} × {uc['height']:,}", "hull_dark", f"{uc['top_y']:,} to {uc['top_y']-uc['height']:,}"),
-    ("U-02", "Metallic plates", len(U["plates"]), "Ø " + " / ".join(f"{2*p['radius']:,}" for p in U["plates"]), "hull_dark", f"{U['plates'][0]['top_y']:,} to {U['plates'][-1]['top_y']-U['plates'][-1]['thickness']:,}"),
-    ("U-03", "Service pipes", pp["count"], f"Ø {2*pp['radius']} on R {pp['ring_radius']:,}", "trim", f"{pp['top_y']:,} to {pp['bottom_y']:,}"),
-    ("U-04", "Machinery blocks", mb["count"], f"{mb['width']:,} × {mb['height']} × {mb['depth']:,} on R {mb['ring_radius']:,}", "hull", f"{mb['top_y']:,} to {mb['top_y']-mb['height']:,}"),
-    ("U-05", "Keel + cone", 1, f"Ø {2*k['radius']:,} × {k['height']:,}; cone to Ø {2*kc['radius_bottom']:,}", "hull_dark", f"{k['top_y']:,} to {kc['top_y']-kc['height']:,}"),
-    ("U-06", "Keel emitter", 1, f"sphere R {U['keel_emitter']['radius']}", "beacon", f"{U['keel_emitter']['y']:,}"),
-    ("L-01", "Legs", 3, f"{leg_len:,.0f} long, rake {leg_rake:.1f}°, Ø {2*L['radius_attach']} → {2*L['radius_foot']}", "hull_dark", f"{L['attach']['y']:,} to {L['foot']['y']:,}"),
-    ("L-02", "Knee joints", 3, f"sphere R {L['knee_radius']}", "hull", str(L["attach"]["y"])),
-    ("L-03", "Foot pads", 3, f"Ø {2*L['foot_pad']['radius']:,} × {L['foot_pad']['thickness']}", "hull", f"{L['foot']['y']:,}"),
-    ("L-04", "Leg braces", 3, f"Ø {2*L['brace']['radius']} from 42 % down the leg to keel at y {L['brace']['keel_y']:,}", "hull_dark", "—"),
+    ("M-01", "Main dome (glass) + deck", 1, f"ellipsoid Ø {2*R:,} × h {PP['dome']['height_frac']*R:,.0f}", "glass / hull_light"),
+    ("M-02", "Main collar, ribs, hangar bays", 1, f"Ø {2*collar_r(R):,.0f} × {PP['collar']['height_frac']*R:,.0f}; {PP['ribs']['count_main']} ribs; {PP['hangar_bays']['count']} bays", "hull / rim_light"),
+    ("M-03", "Main hull (revolved)", 1, f"Ø {2*1.09*R:,.0f} → {2*0.68*R:,.0f} over {0.56*R:,.0f}", "hull"),
+    ("M-04", "Main metallic plates", len(PP["plates"]), "Ø " + " / ".join(f"{2*p[0]*R:,.0f}" for p in PP["plates"]), "hull_dark / rim_light"),
+    ("M-05", "Main core + nub", 1, f"Ø {2*PP['core']['radius_frac']*R:,.0f}; bottom y {pod_bottom(R):,.0f}", "hull_dark"),
+    ("M-06", "Main city", MP["city"]["tower_count"], f"{MP['city']['height_min']}–{MP['city']['height_max']:,} tall + {MP['city']['lowrise_count']} low-rise", "city / city_glow"),
+    ("M-07", "Council spire", 1, f"Ø {2*ct['radius_base']:,} → {2*ct['radius_top']}, h {OVERALL['council_tower_height']:,}", "city / city_glow"),
+    ("S-01", "Satellite domes + decks", SP["count"], f"ellipsoid Ø {2*Rs:,.0f} × h {PP['dome']['height_frac']*Rs:,.0f}", "glass / hull_light"),
+    ("S-02", "Satellite collars, ribs, bays", SP["count"], f"Ø {2*collar_r(Rs):,.0f}; {PP['ribs']['count_satellite']} ribs", "hull / rim_light"),
+    ("S-03", "Satellite hulls", SP["count"], f"{int(SP['scale']*100)} % of main profile", "hull"),
+    ("S-04", "Satellite plates", SP["count"] * len(PP["plates"]), "Ø " + " / ".join(f"{2*p[0]*Rs:,.0f}" for p in PP["plates"]), "hull_dark"),
+    ("S-05", "Satellite cores + nubs", SP["count"], f"Ø {2*PP['core']['radius_frac']*Rs:,.0f}; bottom y {pod_bottom(Rs):,.0f}", "hull_dark"),
+    ("S-06", "Satellite cities", SP["count"], f"{SP['city']['tower_count']} towers + {SP['city']['lowrise_count']} low-rise each", "city / city_glow"),
+    ("B-01", "Bridge tubes (organic)", B["count"], f"Ø {2*B['tube_radius_main']:,} → {2*B['tube_radius_satellite']:,}, span {bridge_span:,.0f}, sag {B['sag']}, {B['rib_count']} ribs", "bridge_tube"),
+    ("B-02", "Bridge trusses (technical)", B["count"], f"{B['truss']['width']} × {B['truss']['height']} rail, y {B['truss']['y']}", "hull_light / trim"),
+    ("L-01", "Legs", L["count"], f"{leg_len:,.0f} long, rake {leg_rake:.1f}°, Ø {2*L['radius_attach']} → {2*L['radius_foot']}", "hull_dark"),
+    ("L-02", "Knee joints + braces", L["count"], f"sphere R {L['knee_radius']}; brace Ø {2*L['brace']['radius']} to core at y {L['brace']['core_y']:,}", "hull"),
+    ("L-03", "Foot pads", L["count"], f"Ø {2*L['foot_pad']['radius']:,} × {L['foot_pad']['thickness']}; y {L['foot']['y']:,}", "hull"),
+    ("A-01", "Central antenna (downward)", 1, f"{AN['length']:,} long from y {AN['top_y']:,}; Ø {2*AN['radius_top']} → {2*AN['radius_tip']}; 3 rings, 1 dish, beacon", "hull_dark / beacon"),
 ]
-cols = [(18, "ID"), (70, "Part"), (250, "Qty"), (290, "Key dimensions (m)"), (760, "Material"), (930, "Y range (m)")]
+cols = [(18, "ID"), (70, "Part"), (300, "Qty"), (340, "Key dimensions (m)"), (940, "Material")]
 y = 78
-for x, name in cols:
-    tab.ptext(x, y, name, 12, weight="700")
+for x, name in cols: tab.ptext(x, y, name, 12, weight="700")
 tab.add(f'<line x1="{tab.x0+14}" y1="{tab.y0+y+6}" x2="{tab.x0+TW-14}" y2="{tab.y0+y+6}" stroke="{INK}" stroke-width="1"/>')
 y += 24
 for row in parts:
-    for (x, _), val in zip(cols, row):
-        tab.ptext(x, y, str(val), 11.5, mono=(x in (18, 250, 290, 930)))
-    y += 21
-y += 10
-tab.add(f'<line x1="{tab.x0+14}" y1="{tab.y0+y-14}" x2="{tab.x0+TW-14}" y2="{tab.y0+y-14}" stroke="{INK}" stroke-width="1"/>')
+    for (x, _), val in zip(cols, row): tab.ptext(x, y, str(val), 11.5, mono=(x in (18, 300, 340)))
+    y += 20
+y += 8
+tab.add(f'<line x1="{tab.x0+14}" y1="{tab.y0+y-12}" x2="{tab.x0+TW-14}" y2="{tab.y0+y-12}" stroke="{INK}" stroke-width="1"/>')
 tab.ptext(18, y + 6, "OVERALL ENVELOPE (computed)", 13, weight="700")
 env_rows = [
-    f"Overall height, leg feet → antenna tip: {fmt(OVERALL['height_total'])}",
-    f"Deck → antenna tip: {fmt(antenna_top)}     Deck → keel emitter: {fmt(-keel_bottom)}     Deck → leg feet: {fmt(-foot_bottom)}",
+    f"Overall height (leg feet → main dome top): {fmt(OVERALL['height_total'])}     Main pod alone: {fmt(OVERALL['main_pod_height'])} tall",
+    f"Datum → leg feet: {fmt(-foot_bottom)}     Datum → antenna tip: {fmt(-antenna_tip)}     Datum → dome top: {fmt(top)}",
     f"Plan envelope: {fmt(OVERALL['width_x_extent'])} (X) × {fmt(OVERALL['width_z_extent'])} (Z);  bounding circle Ø {fmt(2*overall_radius)}",
-    f"Hub deck Ø {fmt(2*H['deck']['radius'])};  main dome Ø {fmt(2*H['dome']['base_radius'])} × {fmt(H['dome']['height'])} high;  pod decks Ø {fmt(2*P['deck']['radius'])} at {fmt(P['center_distance'])} from centre",
+    f"Main dome Ø {fmt(2*R)}; collar Ø {fmt(2*collar_r(R))}; satellites Ø {fmt(2*Rs)} domes at {fmt(SP['center_distance'])} from centre",
 ]
-for i, r in enumerate(env_rows):
-    tab.ptext(18, y + 28 + i * 18, r, 11.5, mono=True)
-y += 28 + len(env_rows) * 18 + 12
-tab.ptext(18, y, "SCALE BASIS (why these numbers)", 13, weight="700")
-basis = SPEC["scale_basis"]["summary"]
-# naive wrap
-words, lines, cur = basis.split(), [], ""
-for w in words:
-    if len(cur) + len(w) + 1 > 160:
-        lines.append(cur); cur = w
-    else:
-        cur = (cur + " " + w).strip()
-lines.append(cur)
-for i, ln in enumerate(lines):
-    tab.ptext(18, y + 20 + i * 16, ln, 11.5, color="#2d3748")
-y += 20 + len(lines) * 16 + 8
-tab.ptext(18, y, "Confidence: " + SPEC["scale_basis"]["confidence"], 11, color="#4a5568")
-y += 24
-tab.ptext(18, y, "REFERENCES (episodes with the exterior establishing shot)", 13, weight="700")
-for i, r in enumerate(SPEC["canonical_references"]):
-    tab.ptext(18, y + 20 + i * 16, f"{r['id']}  {r['title']} — {r['note']}", 11, color="#2d3748")
+for i, r in enumerate(env_rows): tab.ptext(18, y + 28 + i * 18, r, 11.5, mono=True)
+y += 28 + len(env_rows) * 18 + 10
+def wrap(s, n=150):
+    out, cur = [], ""
+    for w in s.split():
+        if len(cur) + len(w) + 1 > n: out.append(cur); cur = w
+        else: cur = (cur + " " + w).strip()
+    return out + [cur]
+tab.ptext(18, y, "SCALE BASIS", 13, weight="700")
+lines = wrap(SPEC["scale_basis"]["summary"])
+for i, ln in enumerate(lines): tab.ptext(18, y + 20 + i * 16, ln, 11.5, color="#2d3748")
+y += 20 + len(lines) * 16 + 6
+tab.ptext(18, y, "CONFIDENCE", 13, weight="700")
+lines = wrap(SPEC["scale_basis"]["confidence"])
+for i, ln in enumerate(lines): tab.ptext(18, y + 20 + i * 16, ln, 11, color="#4a5568")
+y += 20 + len(lines) * 16 + 6
+tab.ptext(18, y, "WRITTEN SOURCES (see research.md for full text)", 13, weight="700")
+src = [
+    "Wiki: 'a massive space station with a central glass dome, with three separate, smaller domed districts protruding from it. Several metallic plates extend from the bottom'.",
+    "Build log: 'profile sketch of the main pod ... revolved'; 'raised piece that rests on the outside of the pod'; smaller pods 'scaled down to 60%'; bridge 'sculpted';",
+    "  'three legs extruding downward'; 'the middle antenna that runs right down the middle of the center pod ... shorter than the surrounding feet'.",
+    "Print model: 'always the same shot at the same angle, so ... the lower part' is speculative; centre disc ~ Brooklyn.",
+]
+for i, ln in enumerate(src): tab.ptext(18, y + 20 + i * 15, ln, 10.5, color="#2d3748")
+y += 20 + len(src) * 15 + 6
+tab.ptext(18, y, "IN THE SHOW", 13, weight="700")
+quotes = [
+    "S1E10 Rick: 'The citadel of Ricks. It's the secret headquarters for the council of Ricks.'   Morty (S3E1): 'All the different Ricks from all the different realities got together to hide here.'",
+    "S3E1 Worker Rick: 'This area's for teleporting the entire Citadel to somewhere else using only buttons and dials.'   Summer: 'A city of Grandpas?'",
+]
+for i, ln in enumerate(quotes): tab.ptext(18, y + 20 + i * 15, ln, 10.5, color="#2d3748")
 
-# ----------------------------------------------------------------------------
-# Assemble
 # ----------------------------------------------------------------------------
 W = 20 + PW + 20 + EW + 20
 Hh = 20 + PH + 20 + max(SH_, TH) + 20
@@ -561,7 +454,7 @@ svg = [
     f'<marker id="arrE" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="{DIM}"/></marker>',
     "</defs>",
     f'<rect width="{W}" height="{Hh}" fill="#e3e7ee"/>',
-    plan.render(), elev.render(), sec.render(), leg.render(), tab.render(),
+    plan.render(), elev.render(), sec.render(), mini.render(), tab.render(),
     "</svg>",
 ]
 out = ROOT / "schematic" / "citadel_schematic.svg"

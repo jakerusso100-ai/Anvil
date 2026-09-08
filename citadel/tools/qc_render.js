@@ -61,13 +61,13 @@ function requirePlaywright() {
   await page.screenshot({ path: path.join(outDir, 'view_show_angle_opaque_labels.png') });
   await page.evaluate(() => { window.__citadel.setOption('glass', null); window.__citadel.setOption('labels', false); });
   // close-ups
-  await page.evaluate(() => window.__citadel.setCamera({ azimuth_deg: 122, elevation_deg: 12, distance: 20000, target: [0, 1500, 0] }));
+  await page.evaluate(() => window.__citadel.setCamera({ azimuth_deg: 122, elevation_deg: 12, distance: 26000, target: [0, 500, 0] }));
   await page.evaluate(() => window.__citadel.renderNow());
   await page.screenshot({ path: path.join(outDir, 'closeup_hub_dome.png') });
-  await page.evaluate(() => window.__citadel.setCamera({ azimuth_deg: 105, elevation_deg: 8, distance: 14000, target: [0, 6300, 12600] }));
+  await page.evaluate(() => window.__citadel.setCamera({ azimuth_deg: 60, elevation_deg: 10, distance: 22000, target: [4000, -1200, 9000] }));
   await page.evaluate(() => window.__citadel.renderNow());
   await page.screenshot({ path: path.join(outDir, 'closeup_pod_bridge.png') });
-  await page.evaluate(() => window.__citadel.setCamera({ azimuth_deg: 140, elevation_deg: -12, distance: 26000, target: [0, -6000, 0] }));
+  await page.evaluate(() => window.__citadel.setCamera({ azimuth_deg: 140, elevation_deg: -14, distance: 34000, target: [0, -9000, 0] }));
   await page.evaluate(() => window.__citadel.renderNow());
   await page.screenshot({ path: path.join(outDir, 'closeup_understructure.png') });
 

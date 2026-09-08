@@ -1,468 +1,118 @@
 {
   "name": "Citadel of Ricks",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "units": "meters",
   "scale": "1:1",
   "coordinate_system": {
     "up": "+Y",
-    "origin": "centre of the main hub deck, at the deck's top surface (y = 0)",
+    "origin": "centre of the main pod, on the plane where the glass dome meets the hull (y = 0)",
     "azimuth_zero": "+X axis, angles increase toward +Z (viewed from above: counter-clockwise)"
   },
   "scale_basis": {
-    "summary": "Central hub deck diameter ~17 km (dome 15.2 km). Derived from the only available in-universe yardstick: street-level shots inside the Citadel (S3E7) show cars (~4 m), which give building widths and the spacing between towers; extrapolating that to the exterior establishing shot gives a central disc roughly the size of Brooklyn (~15-17 km across). This is the same reasoning used by the community 1:200 000 print model, which independently arrives at a Brooklyn-sized centre disc.",
-    "confidence": "Exterior proportions are taken from the single recurring establishing shot (S1E10, S3E1, S3E7, S5E10). Everything above the deck plane is well attested; the underside and legs are seen only in that one 3/4 view and are partly inferred."
+    "summary": "Main dome diameter 15.2 km. The show never states a size; the only in-universe yardstick is the S3E7 street-level material (cars ~4 m) which gives tower widths and spacing, and extrapolating that to the exterior establishing shot puts the central pod at roughly the size of Brooklyn (15-17 km). The community 1:200 000 print model reaches the same Brooklyn-sized centre disc independently.",
+    "confidence": "Shape follows the written descriptions in research.md: one revolved main pod (glass dome, raised collar, bowl hull tapering into stacked metallic plates), three 60 % copies of that pod protruding from it on organic bridges, three legs extruding downward, and a single central antenna running down the middle of the main pod, shorter than the legs. No show frame could be viewed from this environment (see research.md), so plate count, leg rake and bridge sag are the least certain values."
   },
   "canonical_references": [
-    {
-      "id": "S1E10",
-      "title": "Close Rick-counters of the Rick Kind",
-      "note": "First exterior establishing shot: central glass dome, three smaller domed districts, stacked metallic plates below, three legs, single antenna. Orange/brown nebula backdrop."
-    },
-    {
-      "id": "S3E01",
-      "title": "The Rickshank Rickdemption",
-      "note": "Same exterior; Citadel teleported into the Galactic Federation prison and heavily damaged."
-    },
-    {
-      "id": "S3E07",
-      "title": "The Ricklantis Mixup",
-      "note": "Rebuilt Citadel, same silhouette. Street-level shots used for the scale basis."
-    },
-    {
-      "id": "S5E10",
-      "title": "Rickmurai Jack",
-      "note": "Exterior seen again before destruction; Mortyburg district detaches."
-    }
+    {"id": "S1E10", "title": "Close Rick-counters of the Rick Kind", "note": "First exterior establishing shot ('[Trans. Ext Citadel of Ricks]'). Rick: 'The citadel of Ricks. It's the secret headquarters for the council of Ricks.'"},
+    {"id": "S3E01", "title": "The Rickshank Rickdemption", "note": "Same exterior; the whole station is teleported into a Galactic Federation prison ('This area's for teleporting the entire Citadel to somewhere else using only buttons and dials')."},
+    {"id": "S3E07", "title": "The Ricklantis Mixup", "note": "Rebuilt Citadel, same silhouette. Street-level shots used for the scale basis."},
+    {"id": "S5E10", "title": "Rickmurai Jack", "note": "Exterior seen again before Evil Morty destroys it; Mortyburg district detaches."}
   ],
   "materials": {
-    "hull": {
-      "color": "#7c8797",
-      "roughness": 0.62,
-      "metalness": 0.55,
-      "note": "Main plating: cool blue-grey"
-    },
-    "hull_dark": {
-      "color": "#4a5261",
-      "roughness": 0.7,
-      "metalness": 0.6,
-      "note": "Understructure, plates, keel"
-    },
-    "hull_light": {
-      "color": "#a4adb9",
-      "roughness": 0.55,
-      "metalness": 0.5,
-      "note": "Deck top surfaces, dome collars"
-    },
-    "trim": {
-      "color": "#2e3440",
-      "roughness": 0.8,
-      "metalness": 0.4,
-      "note": "Recesses, hangar interiors, pipe shadows"
-    },
-    "glass": {
-      "color": "#8fe3d3",
-      "opacity": 0.28,
-      "roughness": 0.08,
-      "metalness": 0.0,
-      "note": "Dome glass: pale teal-green, seen tinted against the nebula"
-    },
-    "city": {
-      "color": "#c7ccd4",
-      "roughness": 0.7,
-      "metalness": 0.2,
-      "note": "Tower bodies"
-    },
-    "city_glow": {
-      "color": "#ffd27a",
-      "emissive": "#ffb547",
-      "emissiveIntensity": 1.4,
-      "note": "Lit windows / tower crowns"
-    },
-    "rim_light": {
-      "color": "#ffb060",
-      "emissive": "#ff9a2a",
-      "emissiveIntensity": 2.2,
-      "note": "Orange deck-rim light bands and hangar glow"
-    },
-    "beacon": {
-      "color": "#ffffff",
-      "emissive": "#9fefff",
-      "emissiveIntensity": 3.0,
-      "note": "Antenna beacon and keel emitter"
-    },
-    "bridge_tube": {
-      "color": "#6e7a6c",
-      "roughness": 0.65,
-      "metalness": 0.45,
-      "note": "The 'organic' connecting tube: slightly green-grey"
-    }
+    "hull":        {"color": "#7c8797", "roughness": 0.62, "metalness": 0.55, "note": "Main plating: cool blue-grey"},
+    "hull_dark":   {"color": "#4a5261", "roughness": 0.7,  "metalness": 0.6,  "note": "Plates, cores, legs, antenna"},
+    "hull_light":  {"color": "#a4adb9", "roughness": 0.55, "metalness": 0.5,  "note": "Collars, plate tops, ribs"},
+    "trim":        {"color": "#2e3440", "roughness": 0.8,  "metalness": 0.4,  "note": "Recesses, hangar interiors, greebles"},
+    "glass":       {"color": "#8fe3d3", "opacity": 0.28, "roughness": 0.08, "metalness": 0.0, "note": "Dome glass: pale teal-green against the nebula"},
+    "city":        {"color": "#c7ccd4", "roughness": 0.7,  "metalness": 0.2,  "note": "Tower bodies"},
+    "city_glow":   {"color": "#ffd27a", "emissive": "#ffb547", "emissiveIntensity": 1.4, "note": "Lit windows / tower crowns"},
+    "rim_light":   {"color": "#ffb060", "emissive": "#ff9a2a", "emissiveIntensity": 2.2, "note": "Orange light bands on collars and plate seams"},
+    "beacon":      {"color": "#ffffff", "emissive": "#9fefff", "emissiveIntensity": 3.0, "note": "Antenna beacon"},
+    "bridge_tube": {"color": "#6f7d6a", "roughness": 0.68, "metalness": 0.4,  "note": "The organic connecting tube: green-grey, ribbed"}
   },
-  "hub": {
-    "deck": {
-      "radius": 8500,
-      "thickness": 1400,
-      "top_y": 0,
-      "note": "Main disc. Top surface is the ground plane of the central city."
-    },
-    "deck_rim_band": {
-      "radius": 8750,
-      "top_y": -350,
-      "height": 600,
-      "note": "Slightly proud ring around the deck edge carrying the orange light band and hangar bays."
-    },
-    "deck_lip": {
-      "radius": 8900,
-      "top_y": -200,
-      "height": 120
-    },
-    "dome": {
-      "base_radius": 7600,
-      "height": 5700,
-      "segments": 96,
-      "note": "Ellipsoidal glass dome: sphere of radius 7600 m scaled to 0.75 in Y."
-    },
-    "dome_collar": {
-      "ring_radius": 7650,
-      "tube_radius": 260,
-      "y": 40
-    },
-    "dome_ribs": {
-      "count": 12,
-      "tube_radius": 70,
-      "note": "Meridian ribs on the dome glass, every 30 degrees."
-    },
-    "council_tower": {
-      "radius_base": 900,
-      "radius_top": 380,
-      "height": 3600,
-      "crown_height": 450,
-      "note": "Council of Ricks spire at the exact centre; tallest building on the station."
-    },
-    "city": {
-      "tower_count": 110,
-      "seed": 1310,
-      "footprint_min": 240,
-      "footprint_max": 620,
-      "height_min": 420,
-      "height_max": 2500,
-      "max_radius": 6900,
-      "keepout_radius": 1300,
-      "lowrise_count": 160,
-      "lowrise_height_min": 120,
-      "lowrise_height_max": 360,
-      "note": "Skyscrapers under the main dome. Heights bias taller toward the centre so the skyline fits under the dome curve."
-    },
-    "hangar_bays": {
-      "count": 8,
-      "width": 1500,
-      "height": 420,
-      "depth": 500,
-      "y": -650,
-      "note": "Rectangular docking mouths cut into the rim band, lit orange."
-    },
-    "antenna": {
-      "base_y": 5700,
-      "height": 4300,
-      "radius_base": 170,
-      "radius_top": 40,
-      "rings": [
-        {
-          "y_frac": 0.3,
-          "radius": 420
-        },
-        {
-          "y_frac": 0.58,
-          "radius": 300
-        },
-        {
-          "y_frac": 0.84,
-          "radius": 190
-        }
-      ],
-      "dish": {
-        "y_frac": 0.46,
-        "radius": 520,
-        "depth": 190
-      },
-      "beacon_radius": 130,
-      "note": "Single centralised antenna at the dome apex."
-    }
+  "pod_profile": {
+    "note": "One body of revolution shared by the main pod (scale 1.0) and the three satellite pods (scale 0.6). All values are fractions of the pod's dome base radius R; y is positive upward from the dome base plane.",
+    "dome":   {"height_frac": 0.62, "base_y_frac": 0.02, "segments": 96},
+    "collar": {"radius_frac": 1.10, "top_y_frac": 0.06, "height_frac": 0.16, "light_band_frac": 0.03,
+               "note": "The 'raised piece that rests on the outside of the pod' - a proud band round the widest part, carrying the light band and hangar bays."},
+    "hull":   [[1.06, 0.00], [1.09, -0.08], [1.06, -0.20], [0.97, -0.34], [0.84, -0.47], [0.68, -0.56], [0.27, -0.56]],
+    "hull_note": "Revolved (r, y) polyline from the underside of the collar down to the top of the plate stack; the last point closes onto the core.",
+    "plates": [[0.75, -0.575, 0.060], [0.65, -0.680, 0.055], [0.55, -0.780, 0.050], [0.45, -0.870, 0.045], [0.35, -0.955, 0.040]],
+    "plates_note": "Several metallic plates extend from the bottom: [radius, top_y, thickness] fractions. Each plate carries an orange seam light and 16 radial greebles.",
+    "core":   {"radius_frac": 0.26, "top_y_frac": -0.56, "bottom_y_frac": -1.06},
+    "nub":    {"radius_top_frac": 0.26, "radius_bottom_frac": 0.09, "top_y_frac": -1.06, "height_frac": 0.16},
+    "ribs":   {"count_main": 12, "count_satellite": 8, "tube_frac": 0.009, "hoops": [0.45, 0.78]},
+    "hangar_bays": {"count": 8, "width_frac": 0.17, "height_frac": 0.055, "depth_frac": 0.06, "y_frac": -0.03, "phase_deg": 22.5},
+    "greebles": {"collar_panels": 36, "core_fins": 20}
   },
-  "pods": {
+  "main_pod": {
+    "dome_radius": 7600,
+    "position": [0, 0, 0],
+    "council_tower": {"radius_base": 900, "radius_top": 380, "height": 3600, "crown_height": 450,
+                      "note": "Council of Ricks spire at the exact centre; the wiki's 'large statue ... in a central column' sits here."},
+    "city": {"tower_count": 110, "seed": 1310, "footprint_min": 240, "footprint_max": 620,
+             "height_min": 420, "height_max": 2500, "max_radius": 6900, "keepout_radius": 1300,
+             "lowrise_count": 160, "lowrise_height_min": 120, "lowrise_height_max": 360}
+  },
+  "satellite_pods": {
     "count": 3,
-    "azimuths_deg": [
-      90,
-      210,
-      330
-    ],
-    "center_distance": 13600,
-    "deck": {
-      "radius": 3300,
-      "thickness": 950
-    },
-    "deck_rim_band": {
-      "radius": 3420,
-      "top_y": -250,
-      "height": 380
-    },
-    "dome": {
-      "base_radius": 2950,
-      "height": 2150,
-      "segments": 64
-    },
-    "dome_collar": {
-      "ring_radius": 2980,
-      "tube_radius": 140,
-      "y": 30
-    },
-    "city": {
-      "tower_count": 26,
-      "seed_base": 700,
-      "footprint_min": 180,
-      "footprint_max": 420,
-      "height_min": 260,
-      "height_max": 1150,
-      "max_radius": 2550,
-      "keepout_radius": 0,
-      "lowrise_count": 40,
-      "lowrise_height_min": 90,
-      "lowrise_height_max": 240
-    },
-    "understructure": {
-      "core_radius": 1500,
-      "core_height": 1500,
-      "plates": [
-        {
-          "radius": 2700,
-          "thickness": 260,
-          "top_y": -1250
-        },
-        {
-          "radius": 2100,
-          "thickness": 220,
-          "top_y": -1850
-        }
-      ],
-      "spike": {
-        "radius": 480,
-        "height": 2200,
-        "top_y": -2450
-      }
-    },
-    "note": "Three smaller domed districts (Mortytown, Mortyburg and the third residential district) protruding from the hub. Pod 1 (90 deg) is the district that faces camera-left in the establishing shot."
+    "scale": 0.60,
+    "azimuths_deg": [90, 210, 330],
+    "center_distance": 15500,
+    "y_offset": 0,
+    "note": "Three smaller domed districts protruding from the main pod; 60 % copies of it (Mortytown, Mortyburg and the third residential district). Pod 1 at 90 deg faces camera-left in the establishing shot.",
+    "city": {"tower_count": 48, "seed_base": 700, "footprint_min": 170, "footprint_max": 420,
+             "height_min": 260, "height_max": 1400, "max_radius": 4100, "keepout_radius": 0,
+             "lowrise_count": 70, "lowrise_height_min": 90, "lowrise_height_max": 240}
   },
   "bridges": {
     "count": 3,
-    "note": "Hybrid technical/organic connectors between the hub rim and each pod deck. A ribbed tube carries the transit tunnel; a flat deck on top is the pedestrian causeway; two struts below tie into the pod's understructure.",
-    "tube": {
-      "radius_hub": 460,
-      "radius_pod": 360,
-      "y": -520,
-      "rib_count": 9,
-      "rib_tube_radius": 90
-    },
-    "causeway": {
-      "width": 1250,
-      "thickness": 180,
-      "y": 0
-    },
-    "rails": {
-      "height": 140,
-      "width": 90
-    },
-    "struts": {
-      "radius": 110,
-      "count": 2,
-      "spread": 700
-    }
-  },
-  "understructure": {
-    "note": "Several metallic plates extend from the bottom of the hub, housing the machinery that keeps the Citadel stable and in orbit.",
-    "core": {
-      "radius": 2650,
-      "top_y": -1400,
-      "height": 4700
-    },
-    "plates": [
-      {
-        "radius": 7700,
-        "thickness": 520,
-        "top_y": -1950
-      },
-      {
-        "radius": 6650,
-        "thickness": 470,
-        "top_y": -2950
-      },
-      {
-        "radius": 5550,
-        "thickness": 430,
-        "top_y": -3850
-      },
-      {
-        "radius": 4450,
-        "thickness": 400,
-        "top_y": -4700
-      },
-      {
-        "radius": 3350,
-        "thickness": 360,
-        "top_y": -5500
-      }
-    ],
-    "pipes": {
-      "count": 12,
-      "radius": 160,
-      "ring_radius": 3050,
-      "top_y": -1400,
-      "bottom_y": -5860
-    },
-    "machinery_blocks": {
-      "count": 6,
-      "width": 1400,
-      "height": 900,
-      "depth": 1100,
-      "ring_radius": 3900,
-      "top_y": -2470
-    },
-    "keel": {
-      "radius": 1950,
-      "top_y": -6100,
-      "height": 3400
-    },
-    "keel_cone": {
-      "radius_top": 1950,
-      "radius_bottom": 720,
-      "top_y": -9500,
-      "height": 3000
-    },
-    "keel_emitter": {
-      "radius": 520,
-      "y": -12700
-    }
+    "note": "Hybrid technical/organic connectors. The organic part is a thick ribbed tube that sags between the two hulls; the technical part is a straight truss rail above it.",
+    "attach_y_main": -1500,
+    "attach_y_satellite": -900,
+    "tube_radius_main": 1250,
+    "tube_radius_satellite": 900,
+    "sag": 900,
+    "rib_count": 7,
+    "rib_tube_radius": 150,
+    "truss": {"width": 900, "height": 420, "y": 250, "rail_radius": 70}
   },
   "legs": {
     "count": 3,
-    "azimuths_deg": [
-      30,
-      150,
-      270
-    ],
-    "note": "Three legs extrude downward and outward, offset 60 degrees from the pods so they sit between the districts. They let the structure stand when landed.",
-    "attach": {
-      "ring_radius": 4900,
-      "y": -4100
-    },
-    "foot": {
-      "ring_radius": 11200,
-      "y": -20500
-    },
-    "radius_attach": 520,
-    "radius_foot": 230,
-    "knee_radius": 680,
-    "foot_pad": {
-      "radius": 640,
-      "thickness": 220
-    },
-    "brace": {
-      "radius": 130,
-      "leg_frac": 0.42,
-      "keel_y": -8000
-    },
-    "note2": "Leg length ≈ 17.6 km; rake ≈ 21 degrees from vertical."
+    "azimuths_deg": [30, 150, 270],
+    "note": "Three legs extruding downward from the main pod's lower plates, between the satellite pods, so the structure can stand on its own. Longer than the central antenna.",
+    "attach": {"ring_radius": 3200, "y": -6500},
+    "foot":   {"ring_radius": 15500, "y": -27000},
+    "radius_attach": 600,
+    "radius_foot": 260,
+    "knee_radius": 760,
+    "foot_pad": {"radius": 700, "thickness": 240},
+    "brace": {"radius": 140, "leg_frac": 0.30, "core_y": -8200}
+  },
+  "antenna": {
+    "note": "A singular centralised antenna that runs right down the middle of the centre pod, shorter than the legs.",
+    "top_y": -9100,
+    "length": 12400,
+    "radius_top": 340,
+    "radius_tip": 70,
+    "rings": [{"y_frac": 0.22, "radius": 900}, {"y_frac": 0.48, "radius": 640}, {"y_frac": 0.74, "radius": 420}],
+    "dish": {"y_frac": 0.36, "radius": 1100, "depth": 300},
+    "beacon_radius": 150
   },
   "environment": {
-    "nebula": {
-      "note": "Orange/brown nebula, brightest behind and slightly below the station in the establishing shot.",
-      "colors": [
-        "#3a1c10",
-        "#8a3d14",
-        "#d8752a",
-        "#f0b26b"
-      ],
-      "sky_radius": 260000
-    },
-    "stars": {
-      "count": 6000,
-      "radius": 240000
-    },
-    "key_light": {
-      "color": "#fff1dc",
-      "intensity": 2.4,
-      "direction": [
-        0.55,
-        0.8,
-        0.3
-      ]
-    },
-    "rim_light": {
-      "color": "#ff8a3d",
-      "intensity": 1.6,
-      "direction": [
-        -0.7,
-        -0.35,
-        -0.6
-      ]
-    },
-    "ambient": {
-      "color": "#5c4636",
-      "intensity": 0.9
-    }
+    "nebula": {"note": "Orange/brown nebula, brightest behind and slightly below the station in the establishing shot.",
+               "colors": ["#3a1c10", "#8a3d14", "#d8752a", "#f0b26b"], "sky_radius": 300000},
+    "stars": {"count": 6000, "radius": 280000},
+    "key_light": {"color": "#fff1dc", "intensity": 2.4, "direction": [0.55, 0.8, 0.3]},
+    "rim_light": {"color": "#ff8a3d", "intensity": 1.6, "direction": [-0.7, -0.35, -0.6]},
+    "ambient": {"color": "#5c4636", "intensity": 0.9}
   },
   "views": {
-    "show_angle": {
-      "note": "The recurring establishing shot: three-quarter view from slightly above, pod 1 front-left.",
-      "azimuth_deg": 122,
-      "elevation_deg": 17,
-      "distance": 56000,
-      "target": [
-        0,
-        -3000,
-        0
-      ]
-    },
-    "top": {
-      "azimuth_deg": 90,
-      "elevation_deg": 89.9,
-      "distance": 70000,
-      "target": [
-        0,
-        0,
-        0
-      ]
-    },
-    "front": {
-      "azimuth_deg": 90,
-      "elevation_deg": 0,
-      "distance": 78000,
-      "target": [
-        0,
-        -5000,
-        0
-      ]
-    },
-    "side": {
-      "azimuth_deg": 0,
-      "elevation_deg": 0,
-      "distance": 78000,
-      "target": [
-        0,
-        -5000,
-        0
-      ]
-    },
-    "underside": {
-      "azimuth_deg": 140,
-      "elevation_deg": -35,
-      "distance": 66000,
-      "target": [
-        0,
-        -7000,
-        0
-      ]
-    }
-  },
-  "overall": {
-    "note": "Computed by tools/make_schematic.py from the values above and written to overall_dimensions.json; also shown live in the viewer."
+    "show_angle": {"note": "The recurring establishing shot: three-quarter view from slightly above, pod 1 front-left.",
+                   "azimuth_deg": 122, "elevation_deg": 14, "distance": 82000, "target": [0, -7000, 0]},
+    "top":       {"azimuth_deg": 90, "elevation_deg": 89.9, "distance": 90000, "target": [0, 0, 0]},
+    "front":     {"azimuth_deg": 90, "elevation_deg": 0, "distance": 96000, "target": [0, -9000, 0]},
+    "side":      {"azimuth_deg": 0,  "elevation_deg": 0, "distance": 96000, "target": [0, -9000, 0]},
+    "underside": {"azimuth_deg": 140, "elevation_deg": -35, "distance": 84000, "target": [0, -10000, 0]}
   }
 }

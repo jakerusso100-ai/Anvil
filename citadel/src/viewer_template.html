@@ -1,5 +1,5 @@
 <title>Citadel of Ricks</title>
-<meta name="description" content="1:1 3D model of the Citadel of Ricks with dimensioned schematic and part list.">
+<meta name="description" content="1:1 3D model of the Citadel of Ricks (v2: revolved pods) with dimensioned schematic and part list.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
@@ -126,7 +126,7 @@
   <section class="card">
     <h2>Views</h2>
     <div class="chips" id="viewChips"></div>
-    <p class="note">Drag to orbit · scroll to zoom · right-drag to pan. "Show angle" is the recurring establishing shot from S1E10 / S3E1 / S3E7.</p>
+    <p class="note">Drag to orbit · scroll to zoom · right-drag to pan. "Show angle" approximates the recurring establishing shot (S1E10 / S3E1 / S3E7). Built from written descriptions; see the Spec tab for sources.</p>
   </section>
   <section class="card">
     <h2>Display</h2>
@@ -289,22 +289,23 @@
   const built = CitadelGeometry.buildCitadel(THREE, SPEC);
   const root = built.root; scene.add(root);
   const footY = SPEC.legs.foot.y - SPEC.legs.foot_pad.thickness;
-  const grid = new THREE.PolarGridHelper(25000, 12, 5, 96, '#3b4557', '#2a3140');
+  const grid = new THREE.PolarGridHelper(30000, 12, 6, 96, '#3b4557', '#2a3140');
   grid.position.y = footY - 5; grid.visible = false; scene.add(grid);
 
   // ------------------------------------------------------------------ labels
+  const PPf = SPEC.pod_profile, Rm = SPEC.main_pod.dome_radius, Rsat = Rm * SPEC.satellite_pods.scale;
   const labelDefs = [
-    ['Antenna mast', [0, SPEC.hub.antenna.base_y + SPEC.hub.antenna.height * 0.7, 0]],
-    ['Main dome · Ø 15.2 km', [0, SPEC.hub.dome.height * 0.98, 0]],
-    ['Council spire', [0, SPEC.hub.council_tower.height + 600, 0]],
-    ['Hangar bays', [SPEC.hub.deck_rim_band.radius * Math.cos(22.5 * DEG), SPEC.hub.hangar_bays.y, SPEC.hub.deck_rim_band.radius * Math.sin(22.5 * DEG)]],
-    ['Metallic plates', [SPEC.understructure.plates[1].radius, SPEC.understructure.plates[1].top_y, 0]],
-    ['Keel', [SPEC.understructure.keel.radius, SPEC.understructure.keel.top_y - SPEC.understructure.keel.height / 2, 0]],
-    ['Keel emitter', [0, SPEC.understructure.keel_emitter.y - 700, 0]],
+    ['Main dome · Ø ' + (2 * Rm / 1000).toFixed(1) + ' km', [0, PPf.dome.height_frac * Rm * 0.98, 0]],
+    ['Council spire', [0, SPEC.main_pod.council_tower.height + 700, 0]],
+    ['Raised collar + hangar bays', [PPf.collar.radius_frac * Rm * Math.cos(22.5 * DEG), PPf.hangar_bays.y_frac * Rm, PPf.collar.radius_frac * Rm * Math.sin(22.5 * DEG)]],
+    ['Metallic plates', [PPf.plates[1][0] * Rm, PPf.plates[1][1] * Rm, 0]],
+    ['Core + nub', [0, (PPf.nub.top_y_frac - PPf.nub.height_frac) * Rm - 500, 0]],
+    ['Central antenna', [0, SPEC.antenna.top_y - SPEC.antenna.length * 0.6, 0]],
+    ['Antenna beacon', [0, SPEC.antenna.top_y - SPEC.antenna.length - 900, 0]],
   ];
-  SPEC.pods.azimuths_deg.forEach((a, i) => labelDefs.push([`Pod ${i + 1} (${a}°)`, [Math.cos(a * DEG) * SPEC.pods.center_distance, SPEC.pods.dome.height + 150, Math.sin(a * DEG) * SPEC.pods.center_distance]]));
+  SPEC.satellite_pods.azimuths_deg.forEach((a, i) => labelDefs.push([`Pod ${i + 1} (${a}°) · 60 %`, [Math.cos(a * DEG) * SPEC.satellite_pods.center_distance, PPf.dome.height_frac * Rsat + 200, Math.sin(a * DEG) * SPEC.satellite_pods.center_distance]]));
   SPEC.legs.azimuths_deg.forEach((a, i) => labelDefs.push([`Leg ${i + 1} (${a}°)`, [Math.cos(a * DEG) * (SPEC.legs.attach.ring_radius + SPEC.legs.foot.ring_radius) / 2, (SPEC.legs.attach.y + SPEC.legs.foot.y) / 2, Math.sin(a * DEG) * (SPEC.legs.attach.ring_radius + SPEC.legs.foot.ring_radius) / 2]]));
-  labelDefs.push(['Bridge · 1.8 km span', [Math.cos(330 * DEG) * 9400, 250, Math.sin(330 * DEG) * 9400]]);
+  labelDefs.push(['Organic bridge', [Math.cos(330 * DEG) * (Rm * 1.09 + 1300), SPEC.bridges.attach_y_main, Math.sin(330 * DEG) * (Rm * 1.09 + 1300)]]);
   const labelLayer = document.getElementById('labels');
   const labels = labelDefs.map(([text, p]) => { const el = document.createElement('div'); el.className = 'label'; el.textContent = text; el.hidden = true; labelLayer.appendChild(el); return { el, pos: new THREE.Vector3().fromArray(p) }; });
   let showLabels = false;
@@ -354,9 +355,9 @@
 
   const env = document.getElementById('envelope');
   const envRows = [
-    ['Overall height (feet → antenna)', OVERALL.height_total], ['Deck → antenna tip', OVERALL.height_deck_to_antenna_tip], ['Deck → keel emitter', OVERALL.depth_below_deck_to_keel_emitter], ['Deck → leg feet', OVERALL.depth_below_deck_to_leg_feet],
-    ['Plan envelope X', OVERALL.width_x_extent], ['Plan envelope Z', OVERALL.width_z_extent], ['Hub deck Ø', OVERALL.hub_deck_diameter], ['Main dome Ø / height', null, `${km(OVERALL.hub_dome_diameter)} / ${km(OVERALL.hub_dome_height)}`],
-    ['Pod deck Ø', OVERALL.pod_deck_diameter], ['Pod centre distance', OVERALL.pod_center_distance], ['Leg length / rake', null, `${km(OVERALL.leg_length)} / ${OVERALL.leg_rake_deg}°`],
+    ['Overall height (feet → dome top)', OVERALL.height_total], ['Main pod alone', OVERALL.main_pod_height], ['Datum → leg feet', OVERALL.depth_to_leg_feet], ['Datum → antenna tip', OVERALL.depth_to_antenna_tip],
+    ['Plan envelope X', OVERALL.width_x_extent], ['Plan envelope Z', OVERALL.width_z_extent], ['Main dome Ø / height', null, `${km(OVERALL.main_dome_diameter)} / ${km(OVERALL.main_dome_height)}`], ['Main collar Ø', OVERALL.main_collar_diameter],
+    ['Satellite dome Ø', OVERALL.satellite_dome_diameter], ['Satellite centre distance', OVERALL.satellite_center_distance], ['Bridge clear span', OVERALL.bridge_clear_span], ['Leg length / rake', null, `${km(OVERALL.leg_length)} / ${OVERALL.leg_rake_deg}°`], ['Antenna length', OVERALL.antenna_length],
   ];
   for (const [k, v, s] of envRows) { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = s || km(v); env.append(dt, dd); }
   document.getElementById('scaleNote').textContent = SPEC.scale_basis.summary;
