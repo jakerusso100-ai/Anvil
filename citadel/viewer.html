@@ -159,7 +159,7 @@
       <button type="button" id="btnOBJ">OBJ</button>
       <button type="button" id="btnPNG">PNG</button>
     </div>
-    <p class="note">Exports are the exact scene shown here, in metres. Downloads work when this file is opened locally; a hosted copy may block downloads, in which case use the files in <span style="font-family:var(--mono)">exports/</span>.</p>
+    <p class="note">Exports are the exact scene shown here, in metres. GLB and OBJ save directly when this file is opened locally; on the hosted page PNG saves and the model files are linked from the repo's <span style="font-family:var(--mono)">exports/</span> folder.</p>
   </section>
 </aside>
 
@@ -7077,8 +7077,23 @@ window.OBJExporter = OBJExporter;
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') { pinned = null; showHit(null); } });
   function pick() { ray.setFromCamera(mouse, camera); const hits = ray.intersectObject(root, true); return hits.length ? describe(hits[0].object) : null; }
 
-  // export
-  function download(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
+  // Local file: a plain anchor download. Hosted on claude.ai: the page must hand
+  // the file over through the `downloads` capability, which only admits a fixed
+  // list of extensions (png yes, glb/obj no) — so PNG saves there and the model
+  // files are pointed at the repo's exports/ folder instead.
+  const REPO_EXPORTS = 'https://github.com/jakerusso100-ai/Anvil/tree/claude/citadel-3d-model-20n79f/citadel/exports';
+  const hosted = !!(window.claude && typeof window.claude.use === 'function');
+  const HOSTED_OK = new Set(['png', 'svg', 'json', 'txt', 'html']);
+  function notice(msg) { hudName.textContent = 'Export'; hudSub.innerHTML = msg; }
+  async function download(blob, name) {
+    const ext = name.split('.').pop().toLowerCase();
+    if (!hosted) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); return; }
+    if (!HOSTED_OK.has(ext)) { notice(`${ext.toUpperCase()} can't be saved from the hosted page. Download it from <a href="${REPO_EXPORTS}" target="_blank" rel="noopener" style="color:var(--teal)">the repo's exports folder</a>, or open viewer.html locally.`); return; }
+    const dl = await window.claude.use('downloads');
+    if (!dl) { notice('Saving files is not available in this view.'); return; }
+    try { await dl.save({ filename: name, data: blob }); notice(`Saved ${name}.`); }
+    catch (e) { notice(e && e.code === 'declined' ? 'Save cancelled.' : `Could not save ${name} (${e && e.code ? e.code : 'error'}).`); }
+  }
   function exportGLB() { return new Promise((res, rej) => new GLTFExporter().parse(root, (r) => res(r), (e) => rej(e), { binary: true, onlyVisible: false })); }
   function exportOBJ() { return new OBJExporter().parse(root); }
   document.getElementById('btnGLB').addEventListener('click', () => exportGLB().then((buf) => download(new Blob([buf], { type: 'model/gltf-binary' }), 'citadel_of_ricks.glb')));
